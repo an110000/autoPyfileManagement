@@ -326,6 +326,42 @@ class ToolTests(unittest.TestCase):
             self.assertEqual(img.size, (4, 5))
             self.assertEqual(img.getpixel((0, 0))[3], 0)
 
+    def test_image_width_height_preview_matches_output(self):
+        """用带方向标记的横图验证单边、双边、等比边框、放大及透明通道。"""
+        image = Image.new("RGBA", (8, 4), (20, 50, 80, 90))
+        exif = image.getexif()
+        exif[274] = 6
+        image.save(self.root / "turn.png", exif=exif)
+        cases = [
+            ("指定宽高", 0, 0, (4, 8)), ("指定宽高", 7, 0, (7, 14)),
+            ("指定宽高", 0, 6, (3, 6)), ("指定宽高", 9, 3, (9, 3)),
+            ("等比适应宽高", 30, 20, (10, 20)), ("等比适应宽高", 6, 18, (6, 12)),
+            ("等比适应宽高", 0, 1, (1, 1)),
+        ]
+        for mode, width, height, expected in cases:
+            with self.subTest(mode=mode, width=width, height=height):
+                opts = dict(format="PNG", sharpen=False, resize_mode=mode, width=width, height=height)
+                _, preview = self.execute("图片转换", True, **opts)
+                result, actual = self.execute("图片转换", **opts)
+                self.assertEqual(actual, preview)
+                self.assertEqual(actual["files"][0]["detail"], f"PNG 4×8 → PNG {expected[0]}×{expected[1]}")
+                with Image.open(result / actual["files"][0]["output"]) as converted:
+                    self.assertEqual(converted.size, expected)
+                    self.assertEqual(converted.getpixel((0, 0))[3], 90)
+
+    def test_reject_unencodable_resize_during_preview(self):
+        """过大像素数、超出编码上限、非法 JSON 尺寸均在预览阶段返回失败。"""
+        Image.new("RGB", (1, 2)).save(self.root / "small.png")
+        cases = [("PNG", 65535, 65535), ("PNG", 65535, 0), ("PNG", -3, 8),
+                 ("PNG", 4.5, 12), ("WEBP", 16384, 1), ("JPEG", 1, 65501)]
+        for fmt, width, height in cases:
+            with self.subTest(fmt=fmt, width=width, height=height):
+                opts = dict(format=fmt, resize_mode="指定宽高", width=width, height=height, sharpen=False)
+                _, report = self.execute("图片转换", True, **opts)
+                self.assertEqual(report["summary"]["error"], 1)
+                self.assertNotIn("output", report["files"][0])
+                self.assertFalse(self.out.exists())
+
     def test_size_first_duplicate_report(self):
         """只对同大小候选求完整散列，排除同尺寸不同内容，并保留零字节重复项。"""
         values = {"a": b"x", "b": b"x", "c": b"y", "d": b"unique", "e": b"", "f": b""}

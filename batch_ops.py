@@ -581,7 +581,9 @@ def perform(root, output, options, selected=None, preview=False, progress=None):
                     item["output"], dest = destination(Path("图片") / rel.with_suffix(new_ext))
                     fmt, before, after = convert_image(path, dest or Path(item["output"]), options["sharpen"],
                                                        options.get("quality", 90), options.get("max_edge", 0),
-                                                       preview=preview)
+                                                       preview=preview, width=options.get("width", 0),
+                                                       height=options.get("height", 0),
+                                                       resize_mode=options.get("resize_mode"))
                     item["detail"] = f"{fmt} {before[0]}×{before[1]} → {options['format']} {after[0]}×{after[1]}"
                 elif mode == "文件整理":
                     rule = options["rule"]

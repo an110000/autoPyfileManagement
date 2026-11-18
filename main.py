@@ -12,20 +12,18 @@ def desktop(ui="pyqt6"):
     """加载桌面程序；源码入口缺依赖时尝试项目解释器，提供明确安装指引。"""
     try:
         if ui == "customtkinter":
-            if getattr(sys, "frozen", False):
-                raise RuntimeError("请用源码目录的启动CustomTkinter.cmd 打开此界面。")
             from ctk_ui import main as start_ui
         else:
             from batch_ui import main as start_ui
     except (ImportError, OSError) as error:
         folder = Path(__file__).resolve().parent
         if not getattr(sys, "frozen", False) and not os.environ.get("BATCH_UI_RETRY"):
-            for name in (".venv-build", ".venv"):
+            for name in (f".venv-build-{ui}", ".venv-build", ".venv"):
                 candidate = folder / name / "Scripts" / "python.exe"
                 if candidate.is_file() and candidate.resolve() != Path(sys.executable).resolve():
                     env = dict(os.environ, BATCH_UI_RETRY="1")
                     return subprocess.call([str(candidate), str(folder / "main.py"), "--ui", ui], env=env)
-        raise RuntimeError(f"桌面依赖加载失败（{sys.executable}）：{error}。请运行启动工作台.cmd，或用当前解释器安装 requirements.txt。") from error
+        raise RuntimeError(f"桌面依赖加载失败（{sys.executable}）：{error}。请用当前解释器安装 requirements-{ui}.txt。") from error
     return start_ui()
 
 
@@ -48,10 +46,11 @@ def replay(args):
     return 1 if report["summary"]["error"] else 0
 
 
-def main():
+def main(default_ui="pyqt6"):
     """选择图形或规则重放入口，记录启动错误；退出码 2 表示整批未能完成。"""
     parser = argparse.ArgumentParser(description="归档台桌面工作站 / 规则重放")
-    parser.add_argument("--ui", choices=("pyqt6", "customtkinter"), default="pyqt6", help="选择源码桌面界面")
+    choices = (default_ui,) if getattr(sys, "frozen", False) else ("pyqt6", "customtkinter")
+    parser.add_argument("--ui", choices=choices, default=default_ui, help="选择桌面界面")
     parser.add_argument("--job", type=Path, help="导出的 JSON 清单或规则")
     parser.add_argument("--input", type=Path, help="重放时扫描的输入目录")
     parser.add_argument("--output", type=Path, help="正式成果的输出根目录")

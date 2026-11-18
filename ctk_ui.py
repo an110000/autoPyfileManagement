@@ -40,7 +40,7 @@ class RuleForm(ctk.CTkFrame):
         self.vars, self.rows, self.inputs, self.bounds = {}, {}, {}, {}
         self.columnconfigure(0, weight=1)
         build_fields(self, mode)
-        for key in ("rule", "format", "header_row", "filter_column", "filter_op"):
+        for key in ("rule", "format", "resize_mode", "header_row", "filter_column", "filter_op"):
             if key in self.vars:
                 self.vars[key].trace_add("write", self.refresh)
         self.refresh()

@@ -1,5 +1,6 @@
 """用 CustomTkinter 的实际控件和事件循环核对六个标签及可拖动布局。"""
 
+import importlib.util
 import tempfile
 import time
 import unittest
@@ -7,6 +8,9 @@ from pathlib import Path
 from unittest.mock import patch
 
 from PIL import Image
+
+if importlib.util.find_spec("customtkinter") is None:
+    raise unittest.SkipTest("当前环境未安装 CustomTkinter 界面")
 
 from ctk_ui import MODES, Workbench
 
@@ -54,6 +58,11 @@ class TkDesktopTests(unittest.TestCase):
                     if mode == "文本替换":
                         fields["find"].set("hello")
                         fields["replacement"].set("done")
+                    elif mode == "图片转换":
+                        fields["resize_mode"].set("等比适应宽高")
+                        fields["width"].set("30")
+                        fields["height"].set("20")
+                        self.assertNotIn("max_edge", w.forms[mode].options())
                     elif mode == "表格处理":
                         fields["rule"].set("分组汇总")
                         fields["keys"].set("sku")
@@ -83,6 +92,9 @@ class TkDesktopTests(unittest.TestCase):
                     self.assertEqual(w.report, preview)
                     self.assertEqual(w.report["summary"]["error"], 0)
                     self.assertTrue((w.result_dir / "整理结果.zip").is_file())
+                    if mode == "图片转换":
+                        with Image.open(w.result_dir / "图片/img.jpg") as converted:
+                            self.assertEqual(converted.size, (30, 15))
 
     def test_selection_wide_sample_and_failed_task(self):
         """只选一个文件，检查最后一列可横向访问，后台错误后仍能再次预览。"""

@@ -33,6 +33,9 @@ def build_fields(form, mode):
         form.choice("format", "图片格式", ["JPEG", "PNG", "WEBP", "BMP", "TIFF"] if mode == "图片转换" else ["JPEG", "PNG"])
         if mode == "图片转换":
             form.number("quality", "编码质量", 1, 100, 90)
+            form.choice("resize_mode", "尺寸方式", ["指定宽高", "等比适应宽高", "限制最长边"])
+            form.number("width", "目标宽度（像素）", 0, 65535, 0, "自动")
+            form.number("height", "目标高度（像素）", 0, 65535, 0, "自动")
             form.number("max_edge", "最长边（像素）", 0, 65535, 0, "保留原尺寸")
         form.check("sharpen", "轻度锐化图片边缘")
     elif mode == "文件整理":
@@ -76,7 +79,11 @@ def visible_fields(mode, values):
             if rule in ("按键去重", "按值拆分", "分组汇总"):
                 visible.add("keys")
     elif mode == "图片转换":
-        visible = {"format", "sharpen", "max_edge"}
+        visible = {"format", "sharpen", "resize_mode"}
+        if values["resize_mode"] == "限制最长边":
+            visible.add("max_edge")
+        else:
+            visible.update(("width", "height"))
         if values["format"] in ("JPEG", "WEBP"):
             visible.add("quality")
     else:

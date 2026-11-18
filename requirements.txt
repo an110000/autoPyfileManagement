@@ -1,6 +1,3 @@
-pandas>=1.4,<4
-openpyxl>=3.0.9,<4
-xlrd>=2.0.2,<3
-Pillow>=9,<13
-PyQt6>=6.5,<7
-customtkinter==5.2.2
+# Optional development environment for running and testing both desktops together.
+-r requirements-pyqt6.txt
+-r requirements-customtkinter.txt

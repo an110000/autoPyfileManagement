@@ -1094,7 +1094,7 @@ PowerShell 中用 \file{$LASTEXITCODE} 查看脚本退出码。只有跳过项�
 \textbf{工具} & \textbf{操作与结果}\\\midrule
 批量重命名 & 模板序号、字符串替换、正则捕获组和前后缀。默认输出副本；原位改名支持撤销。\\
 文本替换 & 预览每个文件前五处匹配的行号、原文及替换结果。自动识别带 BOM 的 UTF-16，保留字节序和换行。\\
-图片转换 & 输出五种图片格式，可设置最长边、编码质量和轻度锐化。预览显示校正方向后的输入与输出尺寸。\\
+图片转换 & 支持指定宽高、等比适应宽高、限制最长边。可选编码质量和锐化，预览显示方向校正后的输入与输出像素。\\
 文件整理 & 按十类文件或修改月份整理副本。支持查重及导出文件清单，清单含相对路径、字节数和时间。\\
 表格处理 & 支持 CSV、XLS 和 XLSX。可先浏览工作表目录，再按表名选择、筛选、合并、去重、汇总、拆分或转换。\\
 一键归档 & 先在“ZIP 成员”筛选中查看路径。执行后一次生成工作簿、图片、文档副本与 ZIP。\\\bottomrule
@@ -1186,8 +1186,8 @@ Path("notes.txt").write_bytes(codecs.BOM_UTF16_LE + text.encode("utf-16-le"))
 \file{replace_text} 先识别 BOM，再解码。行号来自原文的换行边界，CRLF 只算一次。写出时按原字节序重新编码并补回 BOM。整个文件的匹配次数与屏幕展示数量分别计算。替换前先检查变更的交互参考 \href{https://github.com/chmln/sd}{sd}。
 
 \subsection{让图片适合指定尺寸}
-使用一张校正方向后为 800×400 像素的图片。“图片转换”选择 PNG，把最长边设为 200，预览应显示 200×100。再换成 80×40 的图片，输出仍为 80×40。
-\file{convert_image} 先做 EXIF 方向校正，再用等比缩略图生成目标像素，最后处理锐化、透明度与编码。验证时重新打开输出文件读取 \file{image.size}。接口与等比缩小规则见 \href{https://pillow.readthedocs.io/en/stable/reference/Image.html#PIL.Image.Image.thumbnail}{Pillow 的 thumbnail 文档}。
+用 800×400 的图片选 PNG。选“指定宽高”，填宽 300、高 200，输出 300×200，画面随宽高拉伸。改选“等比适应宽高”，同样输入得到 300×150。只填高 200、宽留 0 时，两种方式均得到 400×200；两边都为 0 时保留原尺寸。两种方式也支持放大。“限制最长边”只做等比缩小。
+\file{convert_image} 先校正 EXIF 方向。\file{target_image_size} 按校正后的比例计算尺寸；等比适应时取宽、高两个缩放倍数中较小者。执行按预览的尺寸调用 \file{resize}，再处理锐化、透明度与编码。重新打开输出文件，用 \file{image.size} 对照预览。
 \newpage
 \partlabel{源码实操 · 查重、质量报告与归档}
 \section{用同一批输入验证三份清单}
@@ -1221,7 +1221,7 @@ python batch_tool.py inbox out --preview
 \newpage
 \partlabel{独立复现 · 第二套桌面界面}
 \section{用 CustomTkinter 接入同一个引擎}
-安装 \file{requirements.txt} 后，运行 \file{python main.py --ui customtkinter}。运行 \file{python main.py} 打开 PyQt6。先做下面的小练习，拖动分隔条确认空间分配，再接上数据和按钮。完成后可打开 \file{docs/workbench-customtkinter.png} 对照实机预览。
+安装 \file{requirements-customtkinter.txt} 后运行 \file{python main.py --ui customtkinter}。PyQt6 使用 \file{requirements-pyqt6.txt} 和 \file{python main.py}。先做下面的小练习，拖动分隔条确认空间分配，再接上数据和按钮。配图见 \file{docs/workbench-customtkinter.png}。
 
 \subsection{先搭可拖动的空窗口}
 \begin{lstlisting}[style=lab]
@@ -1258,23 +1258,31 @@ app.mainloop()
 \newpage
 \partlabel{Windows 交付}
 \section{在独立虚拟环境中打包}
-两个桌面入口都可以直接用虚拟环境运行。本节记录 PyQt6 单文件版的构建方法，供需要交付 EXE 时使用；当前两套布局通过源码启动器体验。
+两个版本共用 \file{requirements-core.txt} 中的表格和图像依赖。每个界面各有一份安装清单和一个独立打包入口。根目录的 \file{requirements.txt} 供同时调试两个界面时使用。
 
-\subsection{从源码重新构建}
-本项目使用 Windows x64 和 CPython 3.9 构建。打开 PowerShell，进入包含 \file{build.ps1} 的项目目录，执行下方命令。首次构建需要下载依赖。
+\subsection{先单独运行一个版本}
+在项目根目录打开 PowerShell。下面的命令安装并启动 CustomTkinter；要运行 PyQt6，只需把第一行的值改成 \file{pyqt6}。两个启动器也会优先选用自己对应的环境。
 \begin{lstlisting}
-.\build.ps1
+$ui = "customtkinter"
+$dir = ".\.venv-build-$ui"
+python -m venv $dir
+$py = Join-Path $dir "Scripts\python.exe"
+& $py -m pip install -r "requirements-$ui.txt"
+& $py main.py --ui $ui
 \end{lstlisting}
-脚本创建专用的 \file{.venv-build}，检查它与系统安装的第三方库隔离，按 \file{requirements-build.txt} 安装依赖，再调用该环境中的 PyInstaller。构建中间文件在 \file{build}，可分发的单文件 EXE 在 \file{dist}。Git 跟踪脚本、依赖版本和打包配置，两类生成目录及虚拟环境均由忽略规则管理。
-
-\subsection{怎样控制体积}
-\file{workbench.spec} 以桌面入口作为依赖分析起点。表格功能使用 pandas 和 openpyxl，所以成品包含它们及 NumPy；图片读写使用 Pillow。Qt 侧保留桌面控件、Windows 平台插件和窗口样式。工作台以普通控件绘图，PDF 文件按原样复制，因此可省去 Qt PDF 渲染器和软件 OpenGL 后端。
+\subsection{需要 EXE 时选一条构建命令}
+Windows x64、CPython 3.9 的构建命令如下。脚本分别创建或复用对应的隔离环境，向 pip 传入所选界面的安装清单。\file{requirements-build.txt} 通过 \file{-c} 固定本次需要的依赖版本。
+\begin{lstlisting}
+.\build.ps1 -Ui pyqt6
+.\build.ps1 -Ui customtkinter
+\end{lstlisting}
+\file{workbench.spec} 生成“归档台.exe”，携带 Qt 的 Windows 插件。\file{workbench-customtkinter.spec} 生成“归档台-CustomTkinter.exe”，携带 Tcl/Tk、主题和字体。打开对应的 spec 可查看入口脚本、资源文件和排除模块。两个文件可并存于 \file{dist}。
 
 \subsection{怎样验收成品}
 在输出目录直接启动 EXE，选择“一键归档”和第 2 页的样例文件夹。核对窗口里的四项统计、工作簿中的前导零、两张同名图的去向，再解压 ZIP 对照清单。检查打包内容时，可以在 PowerShell 中运行以下命令；输出会列出可执行文件的外层归档和内层 Python 模块。
 \begin{lstlisting}
-$exe = Get-ChildItem .\dist\*.exe | Select-Object -First 1
-.\.venv-build\Scripts\pyi-archive_viewer.exe -r -b $exe.FullName
+$exe = Get-Item .\dist\归档台-CustomTkinter.exe
+.\.venv-build-customtkinter\Scripts\pyi-archive_viewer.exe -r -b $exe.FullName
 Get-FileHash $exe.FullName -Algorithm SHA256
 \end{lstlisting}
 \end{document}

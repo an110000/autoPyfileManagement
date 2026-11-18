@@ -24,6 +24,7 @@ class RuleForm(QWidget):
             self.fields["rule"].currentTextChanged.connect(self.refresh)
         if mode == "图片转换":
             self.fields["format"].currentTextChanged.connect(self.refresh)
+            self.fields["resize_mode"].currentTextChanged.connect(self.refresh)
         self.refresh()
 
     def add(self, key, title, widget):

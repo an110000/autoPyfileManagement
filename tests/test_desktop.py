@@ -1,5 +1,6 @@
 """通过真实 Qt 控件运行预览和发布，保护工作线程、表单和数据表之间的连接。"""
 
+import importlib.util
 import os
 import tempfile
 import time
@@ -7,6 +8,8 @@ import unittest
 from pathlib import Path
 
 os.environ.setdefault("QT_QPA_PLATFORM", "offscreen")
+if importlib.util.find_spec("PyQt6") is None:
+    raise unittest.SkipTest("当前环境未安装 PyQt6 界面")
 
 from PyQt6.QtTest import QTest
 from PyQt6.QtWidgets import QApplication
@@ -144,7 +147,13 @@ class DesktopTests(unittest.TestCase):
                             fields["find"].setText("code12")
                             fields["replacement"].setText("已核对")
                         elif mode == "图片转换":
+                            fields["resize_mode"].setCurrentText("限制最长边")
                             fields["max_edge"].setValue(12)
+                            self.assertNotIn("width", window.forms.currentWidget().options())
+                            fields["resize_mode"].setCurrentText("指定宽高")
+                            fields["width"].setValue(19)
+                            fields["height"].setValue(11)
+                            self.assertNotIn("max_edge", window.forms.currentWidget().options())
                         elif mode == "文件整理":
                             fields["rule"].setCurrentText("查找重复")
                         elif mode == "表格处理":
@@ -169,7 +178,7 @@ class DesktopTests(unittest.TestCase):
                             self.assertTrue((window.result_dir / "重命名/订单12.txt").is_file())
                         elif mode == "图片转换":
                             with Image.open(window.result_dir / "图片/photo.jpg") as image:
-                                self.assertEqual(image.size, (12, 6))
+                                self.assertEqual(image.size, (19, 11))
                         elif mode == "文件整理":
                             self.assertEqual(window.sample.rowCount(), 2)
                         elif mode == "表格处理":

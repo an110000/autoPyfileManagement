@@ -232,22 +232,63 @@ def write_workbook(frames, target):
     return count
 
 
-def convert_image(path, target, sharpen, quality=90, max_edge=0, *, preview=False):
-    """校正方向、等比缩小，返回源格式及缩放前后尺寸。预览也解码像素以发现坏图。"""
-    if not isinstance(max_edge, int) or not 0 <= max_edge <= 65535:
-        raise ValueError("最长边须为 0 至 65535 之间的整数")
+def target_image_size(original, width, height, fit):
+    """按校正方向后的宽高计算目标像素。0 表示自动；双边等比时用先碰到的边界。"""
+    for label, value in (("宽度", width), ("高度", height)):
+        if type(value) is not int or not 0 <= value <= 65535:
+            raise ValueError(f"{label}须为 0 至 65535 之间的整数")
+    if not width and not height:
+        return original
+    src_w, src_h = original
+    if fit and width and height:
+        # 用整数比交叉相乘，判断由哪一边决定缩放倍数，另一边按比例反算。
+        if width * src_h <= height * src_w:
+            height = 0
+        else:
+            width = 0
+    if not height:
+        height = max(1, (width * src_h + src_w // 2) // src_w)
+    elif not width:
+        width = max(1, (height * src_w + src_h // 2) // src_h)
+    if max(width, height) > 65535:
+        raise ValueError(f"按比例计算出的尺寸 {width}×{height} 超过单边 65535 像素")
+    # 放大小图也可能申请巨量内存；沿用 Pillow 读取图片时使用的像素硬上限。
+    if Image.MAX_IMAGE_PIXELS and width * height > 2 * Image.MAX_IMAGE_PIXELS:
+        raise ValueError(f"目标尺寸 {width}×{height} 超出可处理的总像素数")
+    return width, height
+
+
+def convert_image(path, target, sharpen, quality=90, max_edge=0, *, preview=False,
+                  width=0, height=0, resize_mode=None):
+    """先解码、校正 EXIF 方向，再计算宽高并编码；旧清单仍按最长边只缩小。"""
+    if resize_mode is None:
+        resize_mode = "指定宽高" if width or height else "限制最长边"
+    if resize_mode not in ("指定宽高", "等比适应宽高", "限制最长边"):
+        raise ValueError(f"未知的图片尺寸方式：{resize_mode}")
     with Image.open(path) as image:
         if getattr(image, "n_frames", 1) != 1:
             raise ValueError("多帧图片需先选定帧，已保留原文件")
         # 先展开调色板与透明度，否则 Pillow 会对索引色图片强制用最近邻缩放。
         rgba = ImageOps.exif_transpose(image).convert("RGBA")
         original = rgba.size
-        if max_edge:
-            # Pillow 9.0 用模块常量，后续版本将同一滤镜收进 Resampling。
-            rgba.thumbnail((max_edge, max_edge), getattr(Image, "Resampling", Image).LANCZOS)
-        geometry = image.format, original, rgba.size
+        lanczos = getattr(Image, "Resampling", Image).LANCZOS
+        if resize_mode == "限制最长边":
+            if type(max_edge) is not int or not 0 <= max_edge <= 65535:
+                raise ValueError("最长边须为 0 至 65535 之间的整数")
+            if max_edge:
+                rgba.thumbnail((max_edge, max_edge), lanczos)
+            size = rgba.size
+        else:
+            size = target_image_size(original, width, height, resize_mode == "等比适应宽高")
+        # 编码器的单边上限也要用于预览，避免把无法写出的尺寸标成可处理。
+        limit = {".jpg": 65500, ".webp": 16383}.get(target.suffix.lower())
+        if limit and max(size) > limit:
+            raise ValueError(f"{target.suffix.upper()} 单边最多支持 {limit} 像素，目标尺寸为 {size[0]}×{size[1]}")
+        geometry = image.format, original, size
         if preview:
             return geometry
+        if rgba.size != size:
+            rgba = rgba.resize(size, lanczos)
         alpha = rgba.getchannel("A")
         rgb = rgba.convert("RGB")
         if sharpen:
