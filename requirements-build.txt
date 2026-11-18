@@ -1,0 +1,22 @@
+# Windows x64, CPython 3.9. Runtime requirements are shared with the source app.
+-r requirements.txt
+pandas==2.3.3
+numpy==1.26.4
+openpyxl==3.1.5
+Pillow==11.3.0
+PyQt6==6.7.1
+PyQt6-Qt6==6.7.3
+PyQt6-sip==13.8.0
+PyInstaller==6.16.0
+pyinstaller-hooks-contrib==2026.10
+altgraph==0.17.5
+et_xmlfile==2.0.0
+importlib_metadata==8.7.1
+packaging==26.3
+pefile==2023.2.7
+python-dateutil==3.0.0
+pytz==2026.6
+pywin32-ctypes==0.2.3
+six==1.17.0
+tzdata==2026.6
+zipp==3.23.1

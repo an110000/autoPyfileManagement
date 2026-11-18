@@ -1,0 +1,14 @@
+.venv*/
+/.spyproject/
+/build/
+/dist/
+__pycache__/
+*.py[cod]
+/out/
+/inbox/
+/整理结果/
+*.aux
+*.log
+*.out
+*.synctex.gz
+/实现说明.pdf
