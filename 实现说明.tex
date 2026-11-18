@@ -1084,7 +1084,7 @@ PowerShell 中用 \file{$LASTEXITCODE} 查看脚本退出码。只有跳过项�
 \newpage
 \partlabel{桌面工作台}
 \section{从文件选择到结果预览}
-双击“启动工作台.cmd”运行源码版。顶部选择任务，左栏设置目录、指定文件和规则，右栏可筛选状态、核对样本、导出清单。“预览结果”只计算，“执行处理”重新读取输入并生成新批次。输出目录留空时使用输入目录内的“整理结果”。
+双击“启动工作台.cmd”打开 PyQt6，或双击“启动CustomTkinter.cmd”打开另一套界面。顶部切换工具，左栏填写规则。拖动两栏之间的分隔条可加宽右侧；有数据样本时，向上拖动明细下沿可放大预览。“预览结果”计算计划，“执行处理”重新读取输入。输出留空时使用输入目录内的“整理结果”。
 \begin{center}
 \includegraphics[width=\linewidth,height=.39\textheight,keepaspectratio]{docs/workbench.png}
 \end{center}
@@ -1219,9 +1219,46 @@ Path("notes.txt").write_bytes(codecs.BOM_UTF16_LE + text.encode("utf-16-le"))
 python batch_tool.py inbox out --preview
 \end{lstlisting}
 \newpage
+\partlabel{独立复现 · 第二套桌面界面}
+\section{用 CustomTkinter 接入同一个引擎}
+安装 \file{requirements.txt} 后，运行 \file{python main.py --ui customtkinter}。运行 \file{python main.py} 打开 PyQt6。先做下面的小练习，拖动分隔条确认空间分配，再接上数据和按钮。完成后可打开 \file{docs/workbench-customtkinter.png} 对照实机预览。
+
+\subsection{先搭可拖动的空窗口}
+\begin{lstlisting}[style=lab]
+import tkinter as tk
+import customtkinter as ctk
+from tkinter import ttk
+from workbench_view import MODES
+
+app = ctk.CTk()
+app.geometry("1100x700")
+tabs = ctk.CTkSegmentedButton(app, values=list(MODES))
+tabs.pack(fill="x")
+tabs.set(MODES[0])
+body = tk.PanedWindow(app, orient="horizontal", sashwidth=7)
+body.pack(fill="both", expand=True)
+left = ctk.CTkFrame(body)
+views = tk.PanedWindow(body, orient="vertical", sashwidth=7)
+body.add(left, width=300, minsize=240, stretch="never")
+body.add(views, stretch="always")
+for title in ("文件明细", "数据样本"):
+    tree = ttk.Treeview(views, columns=("value",), show="headings")
+    tree.heading("value", text=title)
+    views.add(tree, minsize=80, stretch="always")
+app.mainloop()
+\end{lstlisting}
+在左栏建立 \file{Canvas}，先画虚化底图、再画标题文字。将规则放入 \file{CTkScrollableFrame}，把执行按钮放在滚动区域下方。右侧有样本才加入第二张表；切换到无样本任务时，移除这块面板，让明细使用整栏高度。Qt 版用两个 \file{QSplitter} 实现相同布局。
+
+\subsection{接上规则、线程和表格}
+\begin{enumerate}
+\item 打开 \file{workbench_view.py}。照 \file{build_fields} 的接口写四种控件。文本和数字输入绑定 \file{StringVar}，勾选框绑定 \file{BooleanVar}。规则变化时用 \file{visible_fields} 控制字段显隐。点按钮时用 \file{task_options} 生成参数，把可见的数字字段转成整数。
+\item 打开 \file{ctk_ui.py}。顺着 \file{start_batch}、\file{run_batch}、\file{poll} 找到一次点击的路径。主线程先拍下参数，工作线程调用 \file{perform} 后将清单放入 \file{queue.Queue}。主线程用 \file{after} 取消息，再按 \file{report_view} 的结果填入两张表。
+\item 用第 2 页的样例分别启动两个界面，选“表格处理 → 分组汇总”，填 \file{sku} 和 \file{qty}。两边都应显示 0012 合计 6。拖动预览上沿，确认样本能增高；切换标签再回来，确认输入保留，旧批次结果已清空。
+\end{enumerate}
+\newpage
 \partlabel{Windows 交付}
 \section{在独立虚拟环境中打包}
-使用成品时，双击 \file{dist} 目录下的“归档台.exe”。可将这一个文件复制到其他兼容的 64 位 Windows 电脑。程序已内置 Python 和所需的运行库。
+两个桌面入口都可以直接用虚拟环境运行。本节记录 PyQt6 单文件版的构建方法，供需要交付 EXE 时使用；当前两套布局通过源码启动器体验。
 
 \subsection{从源码重新构建}
 本项目使用 Windows x64 和 CPython 3.9 构建。打开 PowerShell，进入包含 \file{build.ps1} 的项目目录，执行下方命令。首次构建需要下载依赖。

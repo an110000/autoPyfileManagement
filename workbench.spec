@@ -4,9 +4,10 @@ from pathlib import PurePosixPath
 analysis = Analysis(
     ["main.py"],
     pathex=[SPECPATH],
+    datas=[("assets/workbench-header.png", "assets")],
     # Pillow supports Tk previews and pandas supports optional plotting. The
     # desktop app renders its own Qt widgets and processes images with Pillow.
-    excludes=["tkinter", "_tkinter", "PIL.ImageTk", "PIL.AvifImagePlugin", "PIL._avif", "matplotlib", "scipy",
+    excludes=["ctk_ui", "customtkinter", "darkdetect", "tkinter", "_tkinter", "PIL.ImageTk", "PIL.AvifImagePlugin", "PIL._avif", "matplotlib", "scipy",
               "cv2", "PyQt5", "PySide6", "IPython", "pytest", "pandas.tests"],
 )
 

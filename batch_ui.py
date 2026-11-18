@@ -7,19 +7,16 @@ import time
 from pathlib import Path
 
 from PyQt6.QtCore import QAbstractTableModel, QModelIndex, QPointF, QRectF, Qt, QThread, QUrl, pyqtSignal
-from PyQt6.QtGui import QColor, QDesktopServices, QFont, QIcon, QPainter, QPolygonF
+from PyQt6.QtGui import QColor, QDesktopServices, QFont, QIcon, QPainter, QPixmap, QPolygonF
 from PyQt6.QtWidgets import (
     QApplication, QComboBox, QFileDialog, QFrame, QGridLayout, QHBoxLayout,
     QHeaderView, QLabel, QLineEdit, QMainWindow, QProgressBar, QPushButton,
-    QSizePolicy, QStackedWidget, QTableView, QTableWidget, QTableWidgetItem, QVBoxLayout, QWidget, QTabBar, QScrollArea, QMessageBox,
+    QSizePolicy, QSplitter, QStackedWidget, QTableView, QTableWidget, QTableWidgetItem, QVBoxLayout, QWidget, QTabBar, QScrollArea, QMessageBox,
 )
 
 from batch_ops import perform, undo_renames
-from rule_forms import MODES, RuleForm
-
-
-STATUS = {"ok": "成功", "skipped": "跳过", "error": "失败"}
-METRICS = {"ok": "成功文件", "skipped": "跳过文件", "error": "失败文件", "rows": "输出行数"}
+from rule_forms import RuleForm
+from workbench_view import HEADER_IMAGE, METRICS, MODES, STATUS, batch_paths, filter_records, record_detail, report_view
 
 
 class BatchWorker(QThread):
@@ -69,10 +66,7 @@ class FileModel(QAbstractTableModel):
     def select_status(self, status, members=()):
         """显示选定状态的源记录，或显示 ZIP 中每个成员的完整相对路径。"""
         self.beginResetModel()
-        if status == "members":
-            self.visible = [dict(source=name, status="ok", label="成员", output="整理结果.zip") for name in members]
-        else:
-            self.visible = [e for e in self.records if e["status"] == status] if status else self.records
+        self.visible = filter_records(self.records, status, members)
         self.endResetModel()
 
     def rowCount(self, parent=QModelIndex()):
@@ -103,11 +97,7 @@ class FileModel(QAbstractTableModel):
             return item["source"]
         if column == 1:
             return item.get("label") or STATUS[item["status"]]
-        if item.get("detail"):
-            return " · ".join(v for v in [item.get("output"), item["detail"]] if v)
-        if "rows" in item:
-            return f"{item['output']} · {item['rows']} 行"
-        return item.get("output") or item.get("reason")
+        return record_detail(item)
 
 
 class FolderArt(QWidget):
@@ -168,8 +158,8 @@ def card(title):
     frame = QFrame()
     frame.setObjectName("card")
     layout = QVBoxLayout(frame)
-    layout.setContentsMargins(20, 18, 20, 18)
-    layout.setSpacing(10)
+    layout.setContentsMargins(14, 12, 14, 12)
+    layout.setSpacing(7)
     layout.addWidget(label(title, "cardTitle"))
     return frame, layout
 
@@ -179,7 +169,8 @@ class Workbench(QMainWindow):
         """建立功能标签、共享的输入区域、预览表和后台任务状态栏。"""
         super().__init__()
         self.setWindowTitle("归档台 · 文件整理工作台")
-        self.resize(1160, 755)
+        screen = self.screen().availableGeometry()
+        self.resize(min(1360, screen.width() - 24), min(860, screen.height() - 54))
         self.worker = None
         self.selected = None
         self.report = None
@@ -189,24 +180,9 @@ class Workbench(QMainWindow):
         central = QWidget()
         self.setCentralWidget(central)
         layout = QVBoxLayout(central)
-        layout.setContentsMargins(22, 18, 22, 16)
-        layout.setSpacing(15)
-
-        banner = QFrame()
-        banner.setObjectName("banner")
-        head = QHBoxLayout(banner)
-        head.setContentsMargins(24, 10, 23, 10)
-        intro = QVBoxLayout()
-        intro.setSpacing(4)
-        intro.addStretch()
-        intro.addWidget(label("文件整理工作台", "title"))
-        intro.addWidget(label("选择工具和文件，预览处理规则，生成独立结果批次。", "subtitle"))
-        intro.addStretch()
-        head.addLayout(intro, 1)
-        art = FolderArt()
-        head.addWidget(art)
-        self.setWindowIcon(QIcon(art.grab()))
-        layout.addWidget(banner)
+        layout.setContentsMargins(14, 10, 14, 8)
+        layout.setSpacing(8)
+        self.setWindowIcon(QIcon(FolderArt().grab()))
         self.tabs = QTabBar()
         self.tabs.setDrawBase(False)
         self.tabs.setExpanding(True)
@@ -214,10 +190,23 @@ class Workbench(QMainWindow):
             self.tabs.addTab(mode)
         layout.addWidget(self.tabs)
 
-        columns = QHBoxLayout()
-        columns.setSpacing(14)
+        self.columns = QSplitter(Qt.Orientation.Horizontal)
+        self.columns.setChildrenCollapsible(False)
+        left = QWidget()
+        left_box = QVBoxLayout(left)
+        left_box.setContentsMargins(0, 0, 0, 0)
+        left_box.setSpacing(8)
+        self.banner = QLabel()
+        self.banner.setFixedHeight(64)
+        self.banner.setSizePolicy(QSizePolicy.Policy.Ignored, QSizePolicy.Policy.Fixed)
+        self.banner.setPixmap(QPixmap(str(HEADER_IMAGE)))
+        self.banner.setScaledContents(True)
+        head = QHBoxLayout(self.banner)
+        head.setContentsMargins(18, 0, 0, 0)
+        head.addWidget(label("文件整理工作台", "title"))
+        left_box.addWidget(self.banner)
         self.settings, setup = card("输入与规则")
-        self.settings.setMinimumWidth(370)
+        self.settings.setMinimumWidth(270)
         self.source = self.path_field(setup, "输入文件夹", "选择或粘贴待整理文件夹的路径")
         self.source.textChanged.connect(self.clear_selection)
         select_row = QHBoxLayout()
@@ -242,13 +231,14 @@ class Workbench(QMainWindow):
         self.start.setMinimumHeight(42)
         self.start.clicked.connect(lambda: self.start_batch(False))
         actions.addWidget(self.start, 1)
-        setup.addLayout(actions)
         scroll = QScrollArea()
         scroll.setFrameShape(QFrame.Shape.NoFrame)
         scroll.setWidgetResizable(True)
         scroll.setWidget(self.settings)
-        scroll.setMinimumWidth(390)
-        columns.addWidget(scroll, 4)
+        scroll.setMinimumWidth(290)
+        left_box.addWidget(scroll, 1)
+        left_box.addLayout(actions)
+        self.columns.addWidget(left)
 
         result, right = card("处理结果")
         counts = QGridLayout()
@@ -258,11 +248,11 @@ class Workbench(QMainWindow):
         for col, (key, title) in enumerate(METRICS.items()):
             tile = QFrame()
             tile.setObjectName("metric")
-            inner = QVBoxLayout(tile)
-            inner.setContentsMargins(8, 7, 8, 7)
-            inner.setSpacing(2)
+            inner = QHBoxLayout(tile)
+            inner.setContentsMargins(8, 4, 8, 4)
+            inner.setSpacing(4)
             self.captions[key] = label(title, "caption")
-            inner.addWidget(self.captions[key])
+            inner.addWidget(self.captions[key], 1)
             self.numbers[key] = label("—", "number")
             inner.addWidget(self.numbers[key])
             counts.addWidget(tile, 0, col)
@@ -281,7 +271,7 @@ class Workbench(QMainWindow):
         toolbar.addWidget(self.filter)
         right.addLayout(toolbar)
         self.stack = QStackedWidget()
-        self.stack.setMinimumHeight(115)
+        self.stack.setMinimumHeight(100)
         self.empty = label("选择输入文件夹或指定文件，然后预览或执行。", "empty")
         self.empty.setWordWrap(True)
         self.empty.setAlignment(Qt.AlignmentFlag.AlignCenter)
@@ -298,18 +288,28 @@ class Workbench(QMainWindow):
         self.table.setAlternatingRowColors(True)
         self.table.setSelectionBehavior(QTableView.SelectionBehavior.SelectRows)
         self.stack.addWidget(self.table)
-        right.addWidget(self.stack, 1)
+        self.result_split = QSplitter(Qt.Orientation.Vertical)
+        self.result_split.setChildrenCollapsible(False)
+        self.result_split.addWidget(self.stack)
+        self.sample_panel = QWidget()
+        sample_box = QVBoxLayout(self.sample_panel)
+        sample_box.setContentsMargins(0, 0, 0, 0)
+        sample_box.setSpacing(4)
         self.sample_picker = QComboBox()
         self.sample_picker.setAccessibleName("选择预览明细")
         self.sample_picker.currentIndexChanged.connect(self.show_sample)
-        right.addWidget(self.sample_picker)
+        sample_box.addWidget(self.sample_picker)
         self.sample = QTableWidget()
         self.sample.setEditTriggers(QTableView.EditTrigger.NoEditTriggers)
-        self.sample.setMaximumHeight(135)
+        self.sample.setMinimumHeight(80)
         self.sample.verticalHeader().setDefaultSectionSize(24)
-        right.addWidget(self.sample)
-        self.sample_picker.hide()
-        self.sample.hide()
+        sample_box.addWidget(self.sample, 1)
+        self.result_split.addWidget(self.sample_panel)
+        self.result_split.setStretchFactor(0, 1)
+        self.result_split.setStretchFactor(1, 1)
+        self.result_split.setSizes([330, 295])
+        self.sample_panel.hide()
+        right.addWidget(self.result_split, 1)
         self.open_result = QPushButton("打开结果目录")
         self.open_result.setEnabled(False)
         self.open_result.setToolTip("查看工作簿、图片、文档、清单和 ZIP")
@@ -326,8 +326,11 @@ class Workbench(QMainWindow):
         log_row.addStretch()
         log_row.addWidget(self.open_result)
         right.addLayout(log_row)
-        columns.addWidget(result, 6)
-        layout.addLayout(columns, 1)
+        self.columns.addWidget(result)
+        self.columns.setStretchFactor(0, 0)
+        self.columns.setStretchFactor(1, 1)
+        self.columns.setSizes([330, 960])
+        layout.addWidget(self.columns, 1)
 
         self.progress_bar = QProgressBar()
         self.progress_bar.setFixedHeight(5)
@@ -375,8 +378,7 @@ class Workbench(QMainWindow):
         self.filter.setEnabled(False)
         self.open_result.setEnabled(False)
         self.export_log.setEnabled(False)
-        self.sample_picker.hide()
-        self.sample.hide()
+        self.sample_panel.hide()
         self.set_empty("当前工具：" + MODES[index] + "\n\n填写规则后执行处理。")
         for number in self.numbers.values():
             number.setText("—")
@@ -449,15 +451,8 @@ class Workbench(QMainWindow):
         """核对目录，固定本次规则和文件范围，然后启动唯一的后台任务。"""
         if self.worker is not None:
             return
-        source = self.source.text().strip()
-        output = self.output.text().strip()
         try:
-            root = Path(source).expanduser()
-            dest = Path(output).expanduser() if output else root / "整理结果"
-            if not source or not root.is_dir():
-                raise ValueError("请选择存在的输入文件夹。")
-            if dest.resolve() == root.resolve() or (dest.exists() and not dest.is_dir()):
-                raise ValueError("请将输出位置设为另一个文件夹。")
+            root, dest = batch_paths(self.source.text(), self.output.text())
         except (ValueError, OSError, RuntimeError) as error:
             self.status.setText(str(error))
             return
@@ -469,11 +464,12 @@ class Workbench(QMainWindow):
             if answer != QMessageBox.StandardButton.Yes:
                 return
         self.settings.setEnabled(False)
+        self.start.setEnabled(False)
+        self.preview.setEnabled(False)
         self.captions["ok"].setText("可处理文件" if preview else "成功文件")
         self.tabs.setEnabled(False)
         self.export_log.setEnabled(False)
-        self.sample_picker.hide()
-        self.sample.hide()
+        self.sample_panel.hide()
         self.report = self.result_dir = None
         self.open_result.setEnabled(False)
         self.filter.setEnabled(False)
@@ -507,23 +503,11 @@ class Workbench(QMainWindow):
             self.undo_state = (self.worker.root.resolve(), [dict(e) for e in report["files"]])
             self.undo_button.show()
         summary = report["summary"]
-        records = [dict(item) for item in report["files"]]
-        if result is None:
-            for item in records:
-                if item["status"] == "ok":
-                    item["label"] = "可处理"
+        records, samples = report_view(report, result is None)
         self.sample_picker.clear()
-        for item in report["files"]:
-            if "sample_columns" in item:
-                self.sample_picker.addItem("替换明细 · " + item["source"], item)
-        for product in report.get("products", []):
-            detail = product.get("detail") or f"{product['rows']} 行"
-            records.append(dict(source="输出预览" if result is None else "批次产物", status="ok",
-                                label="产物", output=product["output"], detail=detail))
-            if "sample_columns" in product:
-                self.sample_picker.addItem("数据样本 · " + product["output"], product)
-        self.sample_picker.setVisible(self.sample_picker.count() > 0)
-        self.sample.setVisible(self.sample_picker.count() > 0)
+        for title, item in samples:
+            self.sample_picker.addItem(title, item)
+        self.sample_panel.setVisible(bool(samples))
         self.model.records = records
         self.filter_rows()
         self.filter.setEnabled(bool(records))
@@ -563,6 +547,8 @@ class Workbench(QMainWindow):
         self.worker.deleteLater()
         self.worker = None
         self.settings.setEnabled(True)
+        self.start.setEnabled(True)
+        self.preview.setEnabled(True)
         self.tabs.setEnabled(True)
         self.progress_bar.hide()
         self.start.setText("执行处理")
@@ -589,9 +575,11 @@ QMainWindow { background:#f2f5ef; }
 QTabBar::tab { background:#e5ede1; color:#476452; padding:9px 8px; margin-right:3px; border-radius:5px; }
 QTabBar::tab:selected { background:#165d51; color:#fff; font-weight:700; }
 QWidget { color:#203c36; }
-QFrame#banner { background:#153f3c; border-radius:13px; }
-QLabel#title { color:#f4f7e6; font-size:31px; font-weight:700; }
-QLabel#subtitle { color:#d7e5d8; font-size:14px; }
+QLabel#title { color:#f4f7e6; font-size:24px; font-weight:700; }
+QSplitter::handle { background:#d2ddd5; }
+QSplitter::handle:hover { background:#73a38c; }
+QSplitter::handle:horizontal { width:6px; }
+QSplitter::handle:vertical { height:6px; }
 QFrame#card { background:white; border:1px solid #d6e0d6; border-radius:12px; }
 QLabel#cardTitle { font-size:20px; font-weight:700; padding-bottom:5px; }
 QLabel#field { font-weight:600; }
