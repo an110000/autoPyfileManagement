@@ -2,6 +2,7 @@
 \documentclass[UTF8,11pt,a4paper,fontset=fandol]{ctexart}
 \usepackage[left=23mm,right=23mm,top=20mm,bottom=22mm]{geometry}
 \usepackage{xcolor,booktabs,tabularx,array,listings,textcomp,fancyhdr,enumitem,graphicx,url}
+\usepackage[unicode,hidelinks]{hyperref}
 \definecolor{ink}{HTML}{173746}
 \definecolor{accent}{HTML}{006C70}
 \definecolor{muted}{HTML}{4B626D}
@@ -26,6 +27,9 @@
   aboveskip=6pt,belowskip=6pt}
 \newcommand{\file}[1]{\texttt{\detokenize{#1}}}
 \newcommand{\partlabel}[1]{{\small\bfseries\color{accent}#1}\par}
+\lstdefinestyle{lab}{language=Python,basicstyle=\linespread{1}\fontsize{9.1}{10.7}\selectfont\ttfamily,
+  keywordstyle=\color{accent},commentstyle=\color{muted},stringstyle=\color{ink}}
+\newcommand{\stepfile}[2]{\textbf{#1}\quad\file{#2}\par}
 \newcolumntype{Y}{>{\raggedright\arraybackslash}X}
 \renewcommand{\arraystretch}{1.22}
 \begin{document}
@@ -33,37 +37,39 @@
 \partlabel{使用与交付}
 {\Huge\bfseries\color{ink}归档台 · 文件批处理工作站\par}
 \vspace{4pt}
-双击“归档台.exe”进入桌面窗口，按任务选择规则。前五页从零实现“一键归档”，第 6 页起介绍各工具、表格计算和规则重放。每条订单可追溯到原文件和行号。
+从一个空目录开始，亲手写出一套可以预览、执行和生成 ZIP 的六标签 PyQt6 工作台。全程使用同一批样例：你能在窗口里点出的每个结果，都应先能在终端算出。
 
-\subsection{先运行一批}
-把 \file{batch_tool.py} 和 \file{requirements.txt} 放在同一个文件夹，在该位置打开 PowerShell。使用 Python 3.9 或更高版本。以下命令直接使用虚拟环境里的解释器。将待处理文件放入 \file{inbox}，或先按下一页生成样例。
+\subsection{新建独立练习目录}
+以下用 Windows、64 位 Python 3.9 和 PowerShell。选择尚未存在的目录名，在项目目录之外执行。代码文件一律保存为 UTF-8；练习阶段的命令均在 \file{archive-practice} 中运行。一次安装后，练习与 Qt 的本地帮助均可离线使用。
 \begin{lstlisting}
+mkdir archive-practice
+cd archive-practice
 python -m venv .venv
-.\.venv\Scripts\python.exe -m pip install -r requirements.txt
-.\.venv\Scripts\python.exe batch_tool.py inbox out --format jpeg --sharpen
+$env:Path = "$PWD\.venv\Scripts;$env:Path"
+python -m pip install pandas==2.3.3 numpy==1.26.4 openpyxl==3.1.5
+python -m pip install Pillow==11.3.0 PyQt6==6.7.1 PyQt6-Qt6==6.7.3
+python -c "import pandas, openpyxl, PIL, PyQt6.QtWidgets; print('OK')"
 \end{lstlisting}
-安装依赖后即可断网运行。\file{--format png} 保留透明通道；默认生成 JPEG，透明处铺白底。\file{--sharpen} 开启轻度锐化，省略时只做方向校正和格式转换。
+看到 \file{OK} 后制作第 2 页样例。设置 \file{Path} 只对当前 PowerShell 生效。重新打开终端后，先回到练习目录并重做设置 \file{Path} 的一行，或用 \verb|.\.venv\Scripts\python.exe| 代替后文的 \file{python}。
 
-\subsection{去哪里看结果}
-终端会打印本次批次目录。每次运行都会生成一个新批次，源文件保留在原位置。
-
+\subsection{按这个顺序动手}
 \begin{tabularx}{\linewidth}{@{}lY@{}}\toprule
-\textbf{批次内的文件} & \textbf{内容与用途}\\\midrule
-合并数据.xlsx & 所有 CSV 和 XLSX 工作表按列名对齐。前三列记录来源文件、工作表和原行号。\\
-图片/、文档/ & 输出名为“扫描序号\_原名.后缀”。同名文件分别保存，清单给出原路径与新路径。\\
-处理清单.json & 每个文件的结果、失败或跳过原因，以及文件数和合并行数。文本编码为 UTF-8。\\
-整理结果.zip & 含上述工作簿、清单和已生成的图片及文档副本，可以直接解压检查。\\\bottomrule
+\textbf{从哪里开始} & \textbf{什么结果说明这一步完成了}\\\midrule
+第 \pageref{lab:scan} 页：扫描和文件规则 & 能列出两张同名图片的相对路径，改名预览不产生文件。\\
+第 \pageref{lab:tables} 页：表格规则 & 输入 4 条订单，按货号得到 3 组，0012 合计 6。\\
+第 \pageref{lab:engine} 页：批次引擎 & 同一个函数可预览、执行，清单与 ZIP 成员一致。\\
+第 \pageref{lab:ui} 页：原生窗口 & 六个标签能切换。输入参数由后台线程处理，窗口显示结果。\\
+第 \pageref{lab:exam} 页：合上答案 & 独立重写一条规则，用反例定位并修复一个错误。\\\bottomrule
 \end{tabularx}
 
-\subsection{输入约定}
-CSV 使用逗号分隔，先尝试 UTF-8（含 BOM），解码失败后尝试 GB18030。XLSX 读取全部工作表。各表第一条非空记录是表头，一张表表达一类记录；建议同一批放业务含义一致的数据。列名统一后才能对齐，例如“货号”和“SKU”会保留为两列。
+\subsection{如何对照正式项目}
+教程中标“新建／追加”的代码可拼成独立的练习程序，入口是 \file{ui_lab.py}。忘记某个方法的职责，可翻到第 \pageref{lab:functions} 页查它的输入、输出和调用时机。对照交付版时，回到项目根目录：\file{main.py} 是正式入口，\file{batch_ops.py} 管理规则，\file{batch_ui.py} 管理窗口。
 
-图片支持 JPEG、PNG、BMP、WebP、TIFF 和 GIF 的单帧文件。文档按扩展名复制，支持 DOC、DOCX、PDF、PPT、PPTX、TXT、MD、RTF。其他后缀和 Office 临时文件在清单中标为跳过。
 
 \newpage
 \partlabel{动手样例}
 \section{先造一批能算出答案的输入}
-把下方代码存为 \file{make_sample.py}，与主脚本放在一起。在该目录运行以下命令。样例需要新建 \file{inbox}；也可以按同样的行列和文件名手工制作。
+把下方代码存为练习目录里的 \file{make_sample.py}，在该目录运行以下命令。首次制作样例时运行一次即可；也可以按同样的行列和文件名手工制作。
 \begin{lstlisting}
 .\.venv\Scripts\python.exe make_sample.py
 \end{lstlisting}
@@ -100,13 +106,902 @@ photo.save(west / "photo.png")
 \end{lstlisting}
 
 \subsection{运行前写下预期值}
-输入共有六个文件。两张同名图都应出现；来自不同目录的文件由相对路径区分。CSV 有一条空记录，两个 Excel 工作表各有一条数据。最终应为\textbf{成功 5 个、失败 0 个、跳过 1 个、合并 4 行}。CSV 第一列中的 \file{0012} 和 \file{NA} 均应保留原文。带着这些预期值再运行首页的批处理命令。
+输入共有六个文件。两张同名图都应出现；来自不同目录的文件由相对路径区分。CSV 有一条空记录，两个 Excel 工作表各有一条数据。最终应为\textbf{成功 5 个、失败 0 个、跳过 1 个、合并 4 行}。CSV 第一列中的 \file{0012} 和 \file{NA} 均应保留原文。先在纸上写下这四行的来源与数值，后面每一层都用它们核对。
 
 \newpage
-\partlabel{从空文件实现 · 数据}
+\partlabel{独立复现 · 文件系统}
+\section{先把路径和写入分开}\phantomsection\label{lab:scan}
+在练习目录新建下列文件。“追加”表示接在同名文件末尾，保留缩进。从这里到批次发布页，将六个标“检查”的代码框按顺序追加到同一个 \file{check_lab.py}；每追加一段就运行 \file{python check_lab.py}。新进程会重新导入刚写好的函数。断言全通过时程序安静退出。
+
+\stepfile{新建}{files_lab.py}
+% lab-file: files_lab.py
+\begin{lstlisting}[style=lab]
+import os
+import shutil
+from pathlib import Path
+
+def scan(root, out):
+    """按固定顺序给出输入文件，跳过输出子目录。"""
+    for folder, dirs, names in os.walk(root):
+        here = Path(folder)
+        dirs[:] = sorted(d for d in dirs if here / d != out
+                         and not (here / d).is_symlink())
+        for name in sorted(names):
+            path = here / name
+            if path.is_file() and not path.is_symlink():
+                yield path
+
+def deliver(stage, relative, writer):
+    """返回相对输出名；执行时才建目录并调用写入函数。"""
+    if stage is not None:
+        dest = stage / relative
+        dest.parent.mkdir(parents=True, exist_ok=True)
+        if dest.exists():
+            raise FileExistsError(dest)
+        try:
+            writer(dest)
+        except Exception:
+            dest.unlink(missing_ok=True)
+            raise
+    return relative.as_posix()
+\end{lstlisting}
+\textbf{为什么用切片赋值？} \file{os.walk} 下一步会读取它交给你的同一个子目录列表。\verb|dirs[:] = ...| 原地删掉输出目录；写成 \verb|dirs = ...| 只改了局部变量。第二次扫描会吃进上一次的结果。
+
+\textbf{为什么传函数？} \file{writer} 代表“到时候怎样写”。先确定输出名，然后再根据 \file{stage} 决定是否调用它。预览与执行因此共用同一条命名规则。
+
+\textbf{检查}\par
+% lab-check
+\begin{lstlisting}[style=lab]
+from pathlib import Path
+from files_lab import scan, deliver
+root = Path("inbox").resolve()
+paths = [p.relative_to(root).as_posix()
+         for p in scan(root, root / "out")]
+assert len(paths) == 6
+assert "east/photo.png" in paths and "west/photo.png" in paths
+assert deliver(None, Path("x.txt"), None) == "x.txt"
+\end{lstlisting}
+如果把字典的键写成 \file{path.name}，两张照片会共用一个键。这里用相对路径贯穿扫描、预览、清单和 ZIP。
+\newpage
+\partlabel{独立复现 · 文件规则}
+\section{改名与替换：先算出变化}\phantomsection\label{lab:rules}
+\stepfile{追加}{files_lab.py}
+一条规则收下一个输入文件，返回一个可读结果。改名先拆扩展名；文本先读字节，再判断编码。用字节写回可以保留原本的 CRLF 或 LF。
+% lab-file: files_lab.py
+\begin{lstlisting}[style=lab]
+import codecs
+import re
+
+def renamed(src, rel, n, opts, stage):
+    """计算带序号的新文件名，保留相对目录，执行时复制原件。"""
+    stem = opts["prefix"] + f"{n:03d}_" + src.stem
+    if re.search(r'[<>:"/\\|?*\x00-\x1f]', stem):
+        raise ValueError("invalid filename")
+    name = Path("names") / rel.with_name(stem + src.suffix)
+    return deliver(stage, name, lambda dest: shutil.copy2(src, dest))
+
+def replaced(src, rel, opts, stage):
+    """按普通文本或正则替换，返回输出位置和命中次数。"""
+    raw = src.read_bytes()
+    enc = "utf-8-sig" if raw.startswith(codecs.BOM_UTF8) else "utf-8"
+    try:
+        text = raw.decode(enc)
+    except UnicodeDecodeError:
+        enc = "gb18030"
+        text = raw.decode(enc)
+    find, new = opts["find"], opts["new"]
+    if not find:
+        raise ValueError("empty search")
+    regex = opts.get("syntax") == "regex"
+    pattern = re.compile(find if regex else re.escape(find))
+    change = new if regex else lambda match: new
+    revised, count = pattern.subn(change, text)
+    if count == 0:
+        return None
+    data = revised.encode(enc)
+    name = deliver(stage, Path("text") / rel,
+                   lambda dest: dest.write_bytes(data))
+    return f"{name} ({count})"
+\end{lstlisting}
+\textbf{手算与检查}\quad 将文件名拆为目录、主名和最后一个扩展名。序号 7、前缀 \file{R}、输入 \file{east/photo.png} 应产生 \file{names/east/R007_photo.png}。正则替换时 \verb|\1| 表示第一个捕获组；普通替换时，回调直接返回原字符串。
+% lab-check
+\begin{lstlisting}[style=lab]
+from pathlib import Path
+from files_lab import renamed, replaced
+p = Path("inbox/west/readme.txt")
+rel = Path("west/readme.txt")
+assert renamed(p, rel, 7, {"prefix":"R"}, None).endswith("R007_readme.txt")
+assert replaced(p, rel, {"find":"note", "new":"memo"}, None).endswith("(1)")
+assert p.read_text(encoding="utf-8") == "delivery note\n"
+\end{lstlisting}
+先在副本模式练习。追加代码后请重新启动 Python，使新定义生效。正式版把模板占位符校验放在 \file{rename_to}；原位改名还要先列出全批目标，并登记可撤销的文件身份，见第 \pageref{lab:production} 页。
+\newpage
+\partlabel{独立复现 · 图片与分类}
+\section{转换与整理：把像素和目录都验出来}\phantomsection\label{lab:image}
+\stepfile{追加}{files_lab.py}
+透明 PNG 的像素含红、绿、蓝和透明度。JPEG 输出时取透明通道作蒙版，透明处显示新画布的白色。输出名保留原目录并带扫描序号，使两种格式的同名输入也有独立去向。
+% lab-file: files_lab.py
+\begin{lstlisting}[style=lab]
+import hashlib
+from datetime import datetime
+from PIL import Image, ImageOps
+
+def converted(src, rel, n, opts, stage):
+    """检查帧数并规划输出名；执行时按目标格式处理方向和透明度。"""
+    kind = opts.get("format", "JPEG")
+    ext = {"JPEG": ".jpg", "PNG": ".png", "WEBP": ".webp"}[kind]
+    name = Path("images") / rel.parent / f"{n:03d}_{src.stem}{ext}"
+    with Image.open(src) as img:
+        if getattr(img, "n_frames", 1) != 1:
+            raise ValueError("expected one frame")
+        def write(dest):
+            rgba = ImageOps.exif_transpose(img).convert("RGBA")
+            if kind == "JPEG":
+                rgb = Image.new("RGB", rgba.size, "white")
+                rgb.paste(rgba, mask=rgba.getchannel("A"))
+                rgb.save(dest, quality=90, subsampling=0)
+            else:
+                rgba.save(dest)
+        return deliver(stage, name, write)
+
+def organized(src, rel, n, opts, stage, seen):
+    """按扩展名或月份归类，查重时分块计算摘要并返回首次出现的位置。"""
+    by = opts.get("by", "type")
+    if by == "duplicate":
+        sha = hashlib.sha256()
+        with src.open("rb") as stream:
+            for block in iter(lambda: stream.read(1024 * 1024), b""):
+                sha.update(block)
+        first = seen.setdefault(sha.hexdigest(), rel)
+        return "first copy" if first == rel else f"same as {first}"
+    folder = src.suffix.lower().lstrip(".") or "other"
+    if by == "month":
+        folder = datetime.fromtimestamp(src.stat().st_mtime).strftime("%Y-%m")
+    name = Path("sorted") / folder / f"{n:03d}_{src.name}"
+    return deliver(stage, name, lambda dest: shutil.copy2(src, dest))
+\end{lstlisting}
+\textbf{检查}\quad 两张 \file{photo.png} 由同一像素矩阵生成。传同一个 \file{seen} 给两次调用，第一次返回 \file{first copy}，第二次应指出东区原件。若每次调用都新建字典，第二张也会被当作首次出现。给西区图换一个像素并重新保存，再运行时，两条记录都应为首次出现。\par
+\textbf{扩展}\quad 正式版的 \file{convert_image} 先保存 alpha，再对 RGB 应用 \file{UnsharpMask}，最后重新附上 alpha。对照第 \pageref{lab:sharpen} 页的透明边缘示例。
+\newpage
+\partlabel{独立复现 · 表格输入}
+\section{把两种表格读成同一种记录}\phantomsection\label{lab:tables}
+\stepfile{新建}{tables_lab.py}
+先实现表头与数据行的协议。样例第一个 CSV 的空行占第 3 条记录；\file{NA} 的来源行必须是 4。源路径、工作表、记录号要在过滤空行之前准备好。
+% lab-file: tables_lab.py
+\begin{lstlisting}[style=lab]
+import csv
+from pathlib import Path
+from decimal import Decimal
+import pandas as pd
+from openpyxl import Workbook, load_workbook
+
+META = ["_source", "_sheet", "_row"]
+
+def as_frame(rows, rel, sheet):
+    """把一张表的记录流转为数据框，在清除空行前记下原始行号。"""
+    names, records = None, []
+    for number, row in enumerate(rows, 1):
+        vals = [v.strip() if isinstance(v, str) else v for v in row]
+        while vals and vals[-1] in ("", None):
+            vals.pop()
+        if not vals:
+            continue
+        if names is None:
+            names = [str(v) if v is not None else "" for v in vals]
+            if ("" in names or len(names) != len(set(names))
+                    or set(META).intersection(names)):
+                raise ValueError(f"{rel}, row {number}: bad header")
+            continue
+        if len(vals) > len(names):
+            raise ValueError(f"{rel}, row {number}: too many fields")
+        vals += [None] * (len(names) - len(vals))
+        records.append([str(rel), sheet, number, *vals])
+    df = pd.DataFrame(records, columns=META + (names or []), dtype=object)
+    df.attrs.update(source=str(rel), sheet=sheet)
+    return df
+
+def read_tables(path, rel):
+    """读取一个文件的全部工作表，整份成功后返回数据框列表。"""
+    if path.suffix.lower() == ".csv":
+        for enc in ("utf-8-sig", "gb18030"):
+            try:
+                with path.open(encoding=enc, newline="") as stream:
+                    return [as_frame(csv.reader(stream, strict=True), rel, "")]
+            except UnicodeDecodeError:
+                if enc == "gb18030":
+                    raise
+    book = load_workbook(path, read_only=True, data_only=False)
+    try:
+        return [as_frame(ws.values, rel, ws.title) for ws in book.worksheets]
+    finally:
+        book.close()
+\end{lstlisting}
+\textbf{检查}\quad 将下面一段追加至检查文件并运行：
+% lab-check
+\begin{lstlisting}[style=lab]
+from pathlib import Path
+from tables_lab import read_tables
+p = Path("inbox/east/orders.csv")
+f = read_tables(p, Path("east/orders.csv"))[0]
+assert f["sku"].tolist() == ["0012", "NA"] and f["_row"].tolist() == [2, 4]
+\end{lstlisting}
+
+\newpage
+\partlabel{独立复现 · 表格计算}
+\section{从四条原始行推导出三组结果}\phantomsection\label{lab:transform}
+\stepfile{追加}{tables_lab.py}
+函数先接受已经读好的数据块，然后产生若干“相对输出名、数据框”对。合并、去重、拆分都保留业务列与来源列；汇总只输出键、计数和合计。逐表互转先处理，避免不同工作表被提前合成一张。
+% lab-file: tables_lab.py
+\begin{lstlisting}[style=lab]
+def products(parts, opts):
+    """按所选规则逐份给出相对输出名和数据框。"""
+    action = opts.get("action", "merge")
+    if not parts:
+        return
+    if action in ("to_csv", "to_xlsx"):
+        for n, frame in enumerate(parts, 1):
+            ext = ".csv" if action == "to_csv" else ".xlsx"
+            yield f"sheet_{n:03d}{ext}", frame.drop(columns=META)
+        return
+    data = pd.concat(parts, ignore_index=True, sort=False)
+    if action == "merge":
+        yield "merged.xlsx", data
+        return
+    key = opts["key"]
+    if key not in data:
+        raise ValueError(f"missing column {key!r}; found {list(data)}")
+    if action == "unique":
+        yield "unique.xlsx", data.drop_duplicates(key, keep="first")
+    elif action == "split":
+        groups = data.groupby(key, sort=False, dropna=False)
+        for n, (_, frame) in enumerate(groups, 1):
+            yield f"group_{n:03d}.xlsx", frame
+    elif action == "sum":
+        value = opts["amount"]
+        if value not in data or value == key or key in ("count", "total"):
+            raise ValueError("check group and amount column names")
+        def decimal_number(raw):
+            if pd.isna(raw) or raw == "":
+                return Decimal(0)
+            number = Decimal(str(raw))
+            if not number.is_finite():
+                raise ValueError(f"invalid number: {raw}")
+            return number
+        data[value] = data[value].map(decimal_number)
+        grouped = data.groupby(key, sort=False, dropna=False)[value]
+        yield "totals.xlsx", grouped.agg(count="size", total="sum").reset_index()
+    else:
+        raise ValueError(f"unknown action: {action}")
+\end{lstlisting}
+\textbf{检查}\quad 追加到检查文件，复用前一段读出的东区数据 \file{f}。
+% lab-check
+\begin{lstlisting}[style=lab]
+from tables_lab import products, read_tables
+p = Path("inbox/west/orders.xlsx")
+parts = [f, *read_tables(p, Path("west/orders.xlsx"))]
+_, totals = next(products(parts, {"action":"sum", "key":"sku", "amount":"qty"}))
+assert list(totals.itertuples(index=False, name=None)) == [
+    ("0012", 2, 6), ("NA", 1, 3), ("0009", 1, 0)]
+\end{lstlisting}
+如果 0012 的记录数为 1，逐文件检查是否提前分组；如果数量合计为“24”，检查进入 \file{groupby} 之前的类型。
+\newpage
+\partlabel{独立复现 · 表格输出}
+\section{把数据框写回磁盘，解释每个单元格}\phantomsection\label{lab:writer}
+\stepfile{追加}{tables_lab.py}
+创建 Excel 单元格时明确字符串类型：输入 \file{0012} 是货号，\verb|=1+1| 在本工具中是要保留的公式原文。对齐缺列产生的缺失值在工作簿中应表现为空单元格。
+% lab-file: tables_lab.py
+\begin{lstlisting}[style=lab]
+def save_frame(frame, dest):
+    """把数据框写成带 BOM 的 CSV 或保留文本单元格的 XLSX。"""
+    if dest.suffix == ".csv":
+        frame.to_csv(dest, index=False, encoding="utf-8-sig")
+        return
+    book = Workbook()
+    ws = book.active
+    ws.title = "data"
+    for c, name in enumerate(frame.columns, 1):
+        cell = ws.cell(1, c, str(name))
+        cell.data_type = "s"
+    for r, row in enumerate(frame.itertuples(index=False, name=None), 2):
+        for c, value in enumerate(row, 1):
+            if pd.isna(value):
+                continue
+            cell = ws.cell(r, c, value)
+            if isinstance(value, str):
+                cell.data_type = "s"
+    ws.freeze_panes = "A2"
+    book.save(dest)
+\end{lstlisting}
+\textbf{检查}\quad 追加到检查文件，复用上一段的 \file{parts}。下面的检查写入一个临时目录并在结束时清理。
+% lab-check
+\begin{lstlisting}[style=lab]
+from tempfile import TemporaryDirectory
+from openpyxl import load_workbook
+from tables_lab import save_frame
+with TemporaryDirectory(dir=".") as folder:
+    dest = Path(folder) / "orders.xlsx"
+    _, merged = next(products(parts, {"action":"merge"}))
+    save_frame(merged, dest)
+    wb = load_workbook(dest, read_only=True)
+    try:
+        rows = list(wb.active.values)
+        assert len(rows) == 5
+        sku = rows[0].index("sku")
+        assert rows[1][sku] == "0012"
+    finally:
+        wb.close()
+\end{lstlisting}
+\subsection{自己加一个精确筛选}
+在 \file{pd.concat} 之后、分支判断之前读取两个参数“筛选列”和“目标值”。列名不为空时先验证列存在，再计算布尔掩码 \verb|data[field].fillna("").astype(str) == wanted|，用 \verb|data = data[mask]| 选择行。若还要调整输出列，在筛选之后调用 \verb|data.loc[:, META + keep]|。这样筛选列可以参与判断，即使用户不需要导出该列。
+
+\textbf{验收}\quad 使用 \file{field="note"}、\file{wanted="rush"}，应该只剩西区 \file{orders} 表的第 2 行。把 \file{field} 改为拼错的列名，应当得到明确的列名错误。正式版在 \file{transform_tables} 里统一验证所用列，另可一次指定多个去重键。
+\newpage
+\partlabel{独立复现 · 批次引擎}
+\section{把六种任务接到同一条处理流程}\phantomsection\label{lab:engine}
+\stepfile{新建}{engine_lab.py}
+界面只调用 \file{run(root, out, mode, opts, execute, notify)}。输入是目录、规则和写入开关；输出是清单字典。先写里面这层 \file{process}。它可收到真实暂存目录，也可收到 \file{None}。逐文件任务当场处理，跨文件的表格运算延迟至扫描完成。
+% lab-file: engine_lab.py
+\begin{lstlisting}[style=lab]
+import json
+import shutil
+import tempfile
+import zipfile
+from pathlib import Path
+from uuid import uuid4
+from files_lab import scan, deliver, renamed, replaced, converted, organized
+from tables_lab import read_tables, products, save_frame
+
+IMAGES = {".jpg", ".jpeg", ".png", ".gif", ".webp", ".bmp", ".tif", ".tiff"}
+TABLES = {".csv", ".xlsx"}
+
+def process(root, out, mode, opts, stage, notify):
+    records, parts, outputs, seen = [], [], [], {}
+    action = opts.get("action", "merge")
+    for n, src in enumerate(scan(root, out), 1):
+        rel, ext = src.relative_to(root), src.suffix.lower()
+        row = {"source": rel.as_posix(), "status": "skip", "detail": ""}
+        records.append(row)
+        try:
+            result = None
+            if mode == "rename":
+                result = renamed(src, rel, n, opts, stage)
+            elif mode == "text" and ext in {".txt", ".md"}:
+                result = replaced(src, rel, opts, stage)
+            elif mode in ("image", "archive") and ext in IMAGES:
+                result = converted(src, rel, n, opts, stage)
+            elif mode == "organize":
+                result = organized(src, rel, n, opts, stage, seen)
+            elif mode in ("sheet", "archive") and ext in TABLES:
+                needed = {"to_csv": ".xlsx", "to_xlsx": ".csv"}.get(action)
+                if needed is None or ext == needed:
+                    tables = read_tables(src, rel)
+                    parts.extend(tables)
+                    result = f"{sum(len(t) for t in tables)} input rows"
+            elif mode == "archive" and ext in {".txt", ".md", ".pdf", ".docx"}:
+                result = deliver(stage, Path("docs") / rel,
+                                 lambda dest: shutil.copy2(src, dest))
+            if result is not None:
+                row.update(status="ok", detail=result)
+        except Exception as exc:
+            row.update(status="error", detail=str(exc))
+        notify(n, row["source"])
+\end{lstlisting}
+\textbf{下一页继续同一个函数。} 输入损坏属于单文件错误，写入该行的 \file{detail}。表的跨文件计算放在 \file{try} 外：若分组列拼错，整批应报告失败，不应交付错误汇总。
+\newpage
+\partlabel{独立复现 · 批次发布}
+\section{让预览和执行共享计划}\phantomsection\label{lab:publish}
+\stepfile{追加}{engine_lab.py}
+本框开头保留四个空格，接在上一页 \file{process} 的扫描循环之后。\file{run} 从行首开始，构成外层发布入口。
+% lab-file: engine_lab.py
+\begin{lstlisting}[style=lab]
+    for filename, frame in products(parts, opts):
+        name = deliver(stage, Path("tables") / filename,
+                       lambda dest: save_frame(frame, dest))
+        sample = frame.head(5).fillna("").astype(str).values.tolist()
+        outputs.append({"name": name, "rows": len(frame),
+                        "columns": list(frame.columns), "sample": sample})
+    return {"files": records, "products": outputs}
+
+def run(root, out, mode, opts, execute=False, notify=lambda n, p: None):
+    root = Path(root).absolute().resolve()
+    out = Path(out).absolute().resolve()
+    if not root.is_dir() or out == root:
+        raise ValueError("check input and output directories")
+    if not execute:
+        return process(root, out, mode, opts, None, notify)
+    out.mkdir(parents=True, exist_ok=True)
+    final = out / ("batch-" + uuid4().hex)
+    with tempfile.TemporaryDirectory(dir=out) as work:
+        stage = Path(work) / "result"
+        stage.mkdir()
+        report = process(root, out, mode, opts, stage, notify)
+        report["directory"] = str(final)
+        (stage / "report.json").write_text(
+            json.dumps(report, ensure_ascii=False, indent=2), encoding="utf-8")
+        members = sorted(p for p in stage.rglob("*") if p.is_file())
+        with zipfile.ZipFile(stage / "result.zip", "w", zipfile.ZIP_DEFLATED) as z:
+            for p in members:
+                z.write(p, p.relative_to(stage).as_posix())
+        stage.rename(final)
+    return report
+\end{lstlisting}
+\textbf{检查}\quad 这是检查文件的最后一段。临时目录保证每次重跑时输出目录都尚未创建。
+% lab-check
+\begin{lstlisting}[style=lab]
+from pathlib import Path
+from collections import Counter
+from zipfile import ZipFile
+from engine_lab import run
+with TemporaryDirectory(dir=".") as work:
+    src, dst = Path("inbox"), Path(work) / "out"
+    r = run(src, dst, "archive", {})
+    assert not dst.exists()
+    assert Counter(x["status"] for x in r["files"]) == {"ok": 5, "skip": 1}
+    assert r["products"][0]["rows"] == 4
+    r = run(src, dst, "archive", {}, execute=True)
+    with ZipFile(Path(r["directory"]) / "result.zip") as z:
+        assert z.testzip() is None and len(z.namelist()) == 5
+\end{lstlisting}
+如果压缩包内出现自己，检查列文件的时机。若执行后工作簿正确、预览时却出现新目录，把建目录的代码移至 \verb|if not execute| 分支之后。
+\newpage
+\partlabel{独立复现 · 界面设计}
+\section{把操作顺序画成窗口布局}\phantomsection\label{lab:ui}
+先在纸上画一个矩形，依次回答四个问题：要处理什么、从哪里读、按什么规则变更、用什么证据看结果。把同一批次共享的目录放在标签外，避免从“图片”切到“表格”后又要选一次目录。左栏放会改变结果的控件，右栏放清单或数据样本；底部留出状态行。
+\begin{tabularx}{\linewidth}{@{}p{.22\linewidth}p{.31\linewidth}Y@{}}\toprule
+\textbf{用户动作} & \textbf{Qt 控件和布局} & \textbf{写代码时检查什么}\\\midrule
+选择任务 & 顶部 \file{QTabBar}；左栏 \file{QStackedWidget} & 两者的索引一一对应。切走再切回，参数仍在各自的表单里。\\
+填写规则 & \file{QFormLayout} 排列标签与输入框 & 有限选项使用下拉框；查找文字和列名使用文本框。只读取当前表单。\\
+预览或执行 & 两个按钮，共用一个入口 & 按钮提供不同的 \file{execute} 布尔值。默认目录相同也不能误写。\\
+核对结果 & 右栏 \file{QTableWidget}，下方状态行 & 清单用来源、状态、详情三列；表格预览直接显示列名与实际值。\\\bottomrule
+\end{tabularx}
+
+\subsection{先让一个窗口出现}
+将这段独立小程序存为 \file{hello_qt.py}。在 PowerShell 运行 \file{python hello_qt.py}，点“预览”后应看到“按钮已连接”。关闭窗口后再写下一页。这个实验只能证明事件循环和槽连接正确，下一步才接文件系统。
+% lab-file: hello_qt.py
+\begin{lstlisting}[style=lab]
+import sys
+from PyQt6.QtWidgets import QApplication, QWidget, QVBoxLayout, QLabel, QPushButton
+
+app = QApplication(sys.argv)
+window = QWidget()
+window.setWindowTitle("Qt 实验")
+layout = QVBoxLayout(window)
+status = QLabel("等待操作")
+button = QPushButton("预览")
+layout.addWidget(status)
+layout.addWidget(button)
+button.clicked.connect(lambda: status.setText("按钮已连接"))
+window.show()
+sys.exit(app.exec())
+\end{lstlisting}
+\textbf{设计参数}\quad 用布局控制间距、伸缩和窄窗口的空间分配。练习窗口的左右栏比例为 2:3；结果表用更宽的一栏容纳路径。主操作按钮用深绿色与粗体文字，次操作保留标准按钮。用 \file{setObjectName("primary")} 配合 \verb|QPushButton#primary| 将样式限定在执行按钮上。\par
+\textbf{定位故障}\quad 窗口一闪而过，检查是否进入 \file{app.exec()}。点按钮立刻在启动时执行，检查传给 \file{connect} 的是否为函数本身；加圆括号会先调用它。
+\newpage
+\partlabel{独立复现 · 窗口骨架}
+\section{搭建六个标签及共享输入区}\phantomsection\label{lab:layout}
+\stepfile{新建}{view_lab.py}
+每个工具占一条配置记录：内部名称供引擎分派，中文名称显示在标签上，第三项决定参数控件。\file{tuple} 代表可选值，字符串代表文本框的默认值。先看“表格处理”：选中 \file{sum} 后，分组列和数值列决定传给 \file{products} 的两个列名。
+% lab-file: view_lab.py
+\begin{lstlisting}[style=lab]
+from PyQt6 import QtWidgets as W
+
+TOOLS = [
+    ("rename", "批量重命名", [("prefix","前缀","R")]),
+    ("text", "文本替换", [("find","查找","note"), ("new","替换为","memo"),
+                         ("syntax","匹配方式",("literal","regex"))]),
+    ("image", "图片转换", [("format","图片格式",("JPEG","PNG","WEBP"))]),
+    ("organize", "文件整理", [("by","分类方式",("type","month","duplicate"))]),
+    ("sheet", "表格处理", [
+        ("action","规则",("merge","unique","sum","split","to_csv","to_xlsx")),
+        ("key","分组或去重列","sku"), ("amount","数值列","qty")]),
+    ("archive", "一键归档", [])
+]
+
+class LabView(W.QWidget):
+    def __init__(self):
+        super().__init__()
+        self.resize(960, 540)
+        self.setWindowTitle("归档台 · 练习工作台")
+        outer = W.QVBoxLayout(self)
+        outer.setContentsMargins(18, 18, 18, 18)
+        outer.setSpacing(12)
+        outer.addWidget(W.QLabel("文件整理工作台"))
+        self.tabs = W.QTabBar()
+        outer.addWidget(self.tabs)
+        columns = W.QHBoxLayout()
+        outer.addLayout(columns, 1)
+        self.left = W.QGroupBox("输入与规则")
+        columns.addWidget(self.left, 2)
+        left = W.QVBoxLayout(self.left)
+        self.src = self.path_row(left, "输入目录", "inbox")
+        self.dst = self.path_row(left, "输出目录", "lab-results")
+        self.stack = W.QStackedWidget()
+        left.addWidget(self.stack)
+        self.inputs = []
+        for mode, title, fields in TOOLS:
+            self.tabs.addTab(title)
+            self.add_page(fields)
+        self.tabs.currentChanged.connect(self.stack.setCurrentIndex)
+        self.stack.setCurrentIndex(0)
+\end{lstlisting}
+\textbf{继续方式}\quad 这一页的类还未写完。下一页开头仍是 \file{__init__} 的方法体（八个空格）；遇到 \file{def path_row} 再退到四个空格。界面从左到右的比例来自 \file{addWidget} 的伸缩因子，实际像素会随着窗口变化。
+\newpage
+\partlabel{独立复现 · 窗口控件}
+\section{写出规则控件、按钮和结果表}\phantomsection\label{lab:controls}
+\stepfile{追加}{view_lab.py}
+% lab-file: view_lab.py
+\begin{lstlisting}[style=lab]
+        left.addStretch()
+        actions = W.QHBoxLayout()
+        self.preview = W.QPushButton("预览")
+        self.apply = W.QPushButton("执行")
+        self.apply.setObjectName("primary")
+        self.setStyleSheet("QPushButton#primary { background:#165d51;"
+                           "color:white; padding:6px; font-weight:bold; }")
+        actions.addWidget(self.preview)
+        actions.addWidget(self.apply)
+        left.addLayout(actions)
+        right = W.QVBoxLayout()
+        columns.addLayout(right, 3)
+        self.pick = W.QComboBox()
+        right.addWidget(self.pick)
+        self.table = W.QTableWidget()
+        self.table.setEditTriggers(W.QAbstractItemView.EditTrigger.NoEditTriggers)
+        right.addWidget(self.table)
+        self.status = W.QLabel("就绪")
+        self.status.setWordWrap(True)
+        outer.addWidget(self.status)
+
+    def path_row(self, layout, title, initial):
+        row = W.QHBoxLayout()
+        edit = W.QLineEdit(initial)
+        button = W.QPushButton("浏览")
+        def choose():
+            folder = W.QFileDialog.getExistingDirectory(self, title, edit.text())
+            if folder:
+                edit.setText(folder)
+        button.clicked.connect(choose)
+        layout.addWidget(W.QLabel(title))
+        row.addWidget(edit, 1)
+        row.addWidget(button)
+        layout.addLayout(row)
+        return edit
+
+    def add_page(self, fields):
+        page = W.QWidget()
+        form = W.QFormLayout(page)
+        editors = {}
+        for key, title, initial in fields:
+            if isinstance(initial, tuple):
+                box = W.QComboBox()
+                box.addItems(initial)
+            else:
+                box = W.QLineEdit(initial)
+            form.addRow(title, box)
+            editors[key] = box
+        self.inputs.append(editors)
+        self.stack.addWidget(page)
+\end{lstlisting}
+\textbf{检查布局}\quad 在练习目录执行以下命令。切换“文本替换”和“图片转换”，左侧字段应变化；取消浏览应保留原路径。下一步连接两个操作按钮。
+\begin{lstlisting}[style=lab]
+python -c "from view_lab import *; a=W.QApplication([]); w=LabView(); w.show(); a.exec()"
+\end{lstlisting}
+\newpage
+\partlabel{独立复现 · 信号与线程}
+\section{在后台读取文件，把结果送回主线程}\phantomsection\label{lab:thread}
+\stepfile{新建}{ui_lab.py}
+工作线程接收普通字符串、字典和布尔值；Qt 界面控件始终由主线程管理。先把引擎的调用单独放进 \file{Task.run}，再把两个按钮接到同一入口。信号参数是双方的约定：\file{tick} 带进度，\file{ready} 带清单，\file{failed} 带可读错误。
+% lab-file: ui_lab.py
+\begin{lstlisting}[style=lab]
+import sys
+from PyQt6.QtCore import QThread, pyqtSignal
+from engine_lab import run
+from view_lab import LabView, TOOLS, W
+
+class Task(QThread):
+    tick = pyqtSignal(int, str)
+    ready = pyqtSignal(dict)
+    failed = pyqtSignal(str)
+
+    def __init__(self, args, parent):
+        super().__init__(parent)
+        self.args = args
+
+    def run(self):
+        try:
+            report = run(*self.args, notify=self.tick.emit)
+        except Exception as error:
+            self.failed.emit(str(error))
+        else:
+            self.ready.emit(report)
+\end{lstlisting}
+
+\subsection{脱离窗口验证线程}
+先运行下面的实验。此时 \file{ui_lab.py} 写到 \file{Task} 类结束就够了。脚本用 Qt 核心事件循环接收信号，不需要先画任何按钮。命令 \file{python check_thread.py} 应打印 \file{6 files} 并退出。
+\stepfile{新建}{check_thread.py}
+% lab-file: check_thread.py
+\begin{lstlisting}[style=lab]
+from PyQt6.QtCore import QCoreApplication
+from ui_lab import Task
+
+app = QCoreApplication([])
+args = ("inbox", "lab-results", "archive", {}, False)
+task = Task(args, app)
+task.ready.connect(lambda report: print(len(report["files"]), "files"))
+task.failed.connect(print)
+task.finished.connect(app.quit)
+task.start()
+app.exec()
+task.wait()
+\end{lstlisting}
+将 \file{inbox} 临时改写为 \file{no-such-folder} 再运行：这次应走失败信号，仍正常退出。把路径改回来。该实验能在 UI 写好之前区分引擎异常和信号没有接上。
+
+\newpage
+\partlabel{独立复现 · 按钮接线}
+\section{给预览和执行共用一个槽}
+\stepfile{追加}{ui_lab.py}
+从行首定义 \file{Window}，继承已完成的布局。不在类外重新建立按钮。用同一份 \file{opts} 把点击时的输入冻结下来；工作线程运行期间，用户仍可滚动结果表，左栏和标签暂停接收修改。
+% lab-file: ui_lab.py
+\begin{lstlisting}[style=lab]
+
+class Window(LabView):
+    def __init__(self):
+        super().__init__()
+        self.job = None
+        self.report = None
+        self.close_later = False
+        self.tabs.currentChanged.connect(self.reset_result)
+        self.pick.currentIndexChanged.connect(self.display)
+        self.preview.clicked.connect(lambda: self.launch(False))
+        self.apply.clicked.connect(lambda: self.launch(True))
+
+    def reset_result(self):
+        self.report = None
+        self.pick.clear()
+        self.table.setRowCount(0)
+        self.table.setColumnCount(0)
+        self.status.setText("就绪")
+
+    def launch(self, execute):
+        if self.job is not None:
+            return
+        i = self.tabs.currentIndex()
+        opts = {}
+        for key, editor in self.inputs[i].items():
+            opts[key] = (editor.currentText() if isinstance(editor, W.QComboBox)
+                         else editor.text())
+        args = self.src.text(), self.dst.text(), TOOLS[i][0], opts, execute
+        if not args[0].strip() or not args[1].strip():
+            self.status.setText("请填写输入、输出目录")
+            return
+        self.reset_result()
+        self.job = Task(args, self)
+        self.left.setEnabled(False)
+        self.tabs.setEnabled(False)
+        self.status.setText("正在处理")
+        self.job.tick.connect(self.progress)
+        self.job.ready.connect(self.completed)
+        self.job.failed.connect(self.status.setText)
+        self.job.finished.connect(self.finished)
+        self.job.start()
+\end{lstlisting}
+\textbf{常见故障}\quad 若点击后界面冻结，检查最后一行。直接写 \file{self.job.run()} 会在按钮事件所在的主线程执行；\file{start()} 才会启动工作线程。把线程保存在 \file{self.job} 能让它活到结束信号到达。
+\par\textbf{沿一次点击走一遍}\quad 输入 \file{sku} 和 \file{qty}，点击“预览”。第一站 \file{launch(False)} 读出 \file{sheet} 和两列名；第二站 \file{Task.run} 在工作线程调用引擎；第三站 \file{completed} 在主线程接收三行数据。最后始终经过 \file{finished}，错误路径也要重新启用按钮。下一页写这三个槽的界面反馈。
+\newpage
+\partlabel{独立复现 · 结果与反馈}
+\section{把清单显示出来，收好线程生命周期}\phantomsection\label{lab:signals}
+\stepfile{追加}{ui_lab.py}
+% lab-file: ui_lab.py
+\begin{lstlisting}[style=lab]
+    def progress(self, count, source):
+        self.status.setText(f"{count} · {source}")
+
+    def completed(self, report):
+        self.report = report
+        self.pick.clear()
+        self.pick.addItem("文件明细")
+        for p in report["products"]:
+            self.pick.addItem(p["name"])
+        self.pick.setCurrentIndex(1 if report["products"] else 0)
+        self.display(self.pick.currentIndex())
+        self.status.setText(report.get("directory", "预览完成，尚未写入"))
+
+    def display(self, index):
+        if self.report is None or index < 0:
+            return
+        if index == 0:
+            headers = ["来源", "状态", "说明"]
+            rows = [(r["source"], r["status"], r["detail"])
+                    for r in self.report["files"]]
+        else:
+            product = self.report["products"][index - 1]
+            headers, rows = product["columns"], product["sample"]
+        self.table.clear()
+        self.table.setColumnCount(len(headers))
+        self.table.setHorizontalHeaderLabels(headers)
+        self.table.setRowCount(len(rows))
+        for r, values in enumerate(rows):
+            for c, value in enumerate(values):
+                self.table.setItem(r, c, W.QTableWidgetItem(str(value)))
+        self.table.resizeColumnsToContents()
+
+    def finished(self):
+        self.job.deleteLater()
+        self.job = None
+        self.left.setEnabled(True)
+        self.tabs.setEnabled(True)
+        if self.close_later:
+            self.close()
+
+    def closeEvent(self, event):
+        if self.job is None:
+            event.accept()
+        else:
+            self.close_later = True
+            event.ignore()
+            self.setWindowTitle("本批完成后关闭")
+
+if __name__ == "__main__":
+    app = W.QApplication(sys.argv)
+    window = Window()
+    window.show()
+    sys.exit(app.exec())
+\end{lstlisting}
+\textbf{运行}\quad 执行 \file{python ui_lab.py}。选“表格处理”，规则选 \file{sum}，两列填 \file{sku} 与 \file{qty}。点“预览”应出现三列 \file{sku/count/total}，首行为 \file{0012 / 2 / 6}，磁盘无新批次。点“执行”后，状态行变为本次批次目录；打开其中的 \file{tables/totals.xlsx}，核对相同的三组数。
+\newpage
+\partlabel{独立复现 · 交互设计}
+\section{从能点击的窗口做到不会填错的表单}
+现在的表格页在“合并”时也显示数值列。让控件跟随规则变化：去重和拆分需要键，求和需要键与数值列，直接合并和格式互转都不需要这两项。切走时保留输入；提交时只取可见值。正式版在 \file{RuleForm.refresh} 与 \file{RuleForm.options} 分别落实这两件事。
+
+\subsection{改两处，再验证一次}
+\textbf{第一处。}打开练习的 \file{view_lab.py}，在 \file{add_page} 的 \verb|self.stack.addWidget(page)| 下一行插入下框。缩进八个空格，每个页面使用自己的 \file{form} 和 \file{editors}。
+\begin{lstlisting}[style=lab]
+        if "action" in editors:
+            def refresh_fields(action):
+                form.setRowVisible(editors["key"],
+                                   action in ("unique", "sum", "split"))
+                form.setRowVisible(editors["amount"], action == "sum")
+            switch = editors["action"]
+            switch.currentTextChanged.connect(refresh_fields)
+            refresh_fields(switch.currentText())
+\end{lstlisting}
+最后一行负责首次显示；如果只连接信号，第一次打开“表格处理”时，要等用户切换一次才会看到正确的布局。
+
+\textbf{第二处。}打开 \file{ui_lab.py}，在 \file{launch} 中、循环读取 \file{editor} 的第一行加判断。这里检查的是当前页面的布局行，数字和字符串值均由原有代码读取。
+\begin{lstlisting}[style=lab]
+        for key, editor in self.inputs[i].items():
+            if not self.stack.currentWidget().layout().isRowVisible(editor):
+                continue
+            opts[key] = (editor.currentText() if isinstance(editor, W.QComboBox)
+                         else editor.text())
+\end{lstlisting}
+\textbf{验证}\quad 重新运行 \file{python ui_lab.py}。选择 \file{sum}，填好 \file{sku}、\file{qty}，再切回 \file{merge}。两个输入框及标签均消失。在 \file{args = ...} 处暂停，此时应只有 \verb|{"action":"merge"}|。切回 \file{sum}，刚才填写的值应恢复。只调用 \file{editor.hide()} 会留下孤立的标签，是很容易发现的布局错误。
+
+\subsection{把剩下的成品控件接在哪里}
+\begin{tabularx}{\linewidth}{@{}lY@{}}\toprule
+控件 & 实现位置与校验方法\\\midrule
+选择指定文件 & 用 \file{QFileDialog.getOpenFileNames} 获取路径，在启动前拍成列表快照。两次改变工作目录后，确认旧的指定列表已清空。\\
+状态筛选与计数 & 保存完整清单，再从中生成可见行。生产版用 \file{FileModel.select_status} 更新模型；筛选仅改可见行，顶部成功数应保持不变。\\
+打开结果目录 & 成功执行后保存 \file{result_dir}，按钮调用 \file{QDesktopServices.openUrl}，传入 \file{QUrl.fromLocalFile}。预览状态下禁用按钮。\\
+样本与日志 & 样本选择框的每一项对应一份产物；切换时更新行列数。导出清单时序列化完整报告，使过滤掉的失败记录也可追溯。\\\bottomrule
+\end{tabularx}
+\newpage
+\partlabel{独立复现 · 结业练习}
+\section{合上代码，独立加一条功能}\phantomsection\label{lab:exam}
+从你刚写的工作台出发，为“表格处理”加一项功能：只统计数量大于或等于门槛的行。仍用第 2 页的六个文件。要求预览和正式导出给出相同的结果，其他五个标签原样工作。先合上前面的代码，用纸写下你要改的两个文件以及每个函数的输入和返回值。
+
+\subsection{先写验收，再动代码}
+把下面存为 \file{test_threshold.py}。它依赖本教程已写好的模块和样例。先运行一次：旧程序会忽略未知参数，第一条结果断言应当失败。此时去改计算规则；修改按钮或颜色不会改变这个断言。
+% lab-file: test_threshold.py
+\begin{lstlisting}[style=lab]
+from pathlib import Path
+from tempfile import TemporaryDirectory
+from openpyxl import load_workbook
+from engine_lab import run
+
+with TemporaryDirectory(dir=".") as work:
+    out = Path(work) / "out"
+    opts = {"action":"sum", "key":"sku", "amount":"qty", "minimum":"3"}
+    report = run("inbox", out, "sheet", opts)
+    expected = [["NA", "1", "3"], ["0012", "1", "4"]]
+    assert report["products"][0]["sample"] == expected
+    assert not out.exists()
+    report = run("inbox", out, "sheet", opts, execute=True)
+    path = Path(report["directory"]) / "tables/totals.xlsx"
+    book = load_workbook(path, read_only=True)
+    try:
+        assert list(book.active.values)[1:] == [("NA", 1, 3), ("0012", 1, 4)]
+    finally:
+        book.close()
+print("threshold OK")
+\end{lstlisting}
+\subsection{卡住时分三处观察}
+\begin{enumerate}
+\item \textbf{表单。}在 \file{view_lab.py} 的 \file{sheet} 字段列表中追加 \verb|("minimum","最小数值","")|。若已做上一页的扩展，在 \file{refresh_fields} 中令该行只在 \file{sum} 时可见。在 \file{Window.launch} 的 \file{args = ...} 处设断点。输入 3 后，应看到 \verb|opts["minimum"] == "3"|。
+\item \textbf{计算。}在 \file{sum} 分支把数值列转为十进制后、分组之前插入下面的判断。观察过滤前四行、过滤后两行。
+\begin{lstlisting}[style=lab]
+        cutoff = opts.get("minimum", "").strip()
+        if cutoff:
+            data = data[data[value] >= Decimal(cutoff)]
+\end{lstlisting}
+\item \textbf{渲染。}到 \file{Window.completed} 检查 \verb|report["products"][0]["sample"]|。若这里有两行而屏幕仍是三行，检查 \file{display} 是否调用了 \file{setRowCount(len(rows))}。预览通过后再点执行，打开文件核实真正写出的值。
+\end{enumerate}
+\textbf{独立复现的自测}\quad 重启解释器，运行 \file{python test_threshold.py} 应打印 \file{threshold OK}。随后把门槛留空：0012 应恢复为两条、总计 6。若把筛选放在分组之后，0012 会保留 6，这个反例就能区分两种实现。
+\newpage
+\partlabel{独立复现 · 函数速查}
+\section{离开示例，怎样划分每个函数的职责}\phantomsection\label{lab:functions}
+试着先遮住右侧一列，用一句话说出各函数接收什么、交回什么，以及在哪一步会写磁盘。复写时从上下游约定入手，函数名和局部变量名可以自己起。
+
+\subsection{从输入目录到一份产物}
+\begin{tabularx}{\linewidth}{@{}lY@{}}\toprule
+函数 & 输入、输出和容易写错的地方\\\midrule
+\file{scan} & 从输入根目录逐个给出文件路径。对每一层排序并排除输出子目录，扫描顺序才可以用作编号。\\
+\file{deliver} & 接收暂存目录、相对名和写入函数。预览直接返回相对名；执行时建父目录、检查重名，写入失败则清理未完成的文件。\\
+\file{renamed} & 用原文件、相对路径、序号和前缀组成新名字，将复制工作交给 \file{deliver}，返回相对名。\\
+\file{replaced} & 读原始字节，解码后统计匹配次数，按原编码写回副本。没有命中返回 \file{None}，上层据此把记录标为跳过。\\
+\file{converted} 与内层 \file{write} & 外层打开图片、检查帧数、计算输出名。内层接收具体目标路径，在图片仍打开时校正方向并保存，JPEG 输出需先铺白底。\\
+\file{organized} & 分类时返回副本的目标名。查重时与整批共用的 \file{seen} 比较摘要，返回“首次出现”或已见路径。\\
+\file{as_frame} & 接收一张表的记录流、来源路径和工作表名。确定表头后按原始行号组装一个数据框，列序稍后再统一。\\
+\file{read_tables} & 把一个 CSV 或一本 XLSX 拆成数据框列表；调用者拿到的是该文件所有工作表的结果。\\
+\file{products} 与内层 \file{decimal_number} & 前者把数据框列表和规则转成一系列“文件名、数据框”对；后者把参与求和的单个值变成十进制数，空值按零计。\\
+\file{save_frame} & 接收单个数据框和目标路径，按后缀选写入方式。在 XLSX 中显式区分文本与数值，结果留在磁盘。\\
+\file{process} & 遍历输入，为每个文件登记一条记录并通知进度，最后才做跨文件运算，返回含文件明细和产物样本的字典。\\
+\file{run} & 接收目录、模式、规则、执行开关和进度回调。预览直接返回清单。执行时在同一输出根目录内暂存、打包、改名，成功后返回附带批次路径的清单。\\\bottomrule
+\end{tabularx}
+
+\textbf{自己排错}\quad 若 Excel 已经写错，先把 \file{products} 给出的数据框打印出来。数据正确，再单独调用 \file{save_frame}，写入临时工作簿并重新读取。这样一次实验只检验一个函数。
+\newpage
+\partlabel{独立复现 · 界面函数速查}
+\section{谁接收按钮事件，谁有权改窗口}
+同一条“预览”命令会经过主线程、工作线程，再回到主线程。按调用顺序读表。试着在处理时缩放窗口，完成后切换样本，再故意拼错列名，观察分别由哪个方法响应。
+
+\begin{tabularx}{\linewidth}{@{}lY@{}}\toprule
+方法 & 何时运行，输入什么，改变什么\\\midrule
+\file{LabView.__init__} & 创建窗口时建立左右布局、工具标签、表单堆栈和结果表。标签索引和配置列表的次序保持一致。\\
+\file{path_row} 与内层 \file{choose} & 前者把目录框和浏览按钮放入一行，返回输入框供后续读取。后者在点击浏览时运行，选中目录后更新输入框，取消时保留原值。\\
+\file{add_page} 与 \file{refresh_fields} & 按字段配置建立一页表单，保存字段名与控件的对应关系。扩展中的后者响应规则变化，同时显示或隐藏标签与输入框。\\
+\file{Window.__init__} & 在已有布局上连接信号与槽，记录当前任务和最近清单。按钮的两个回调分别传入 \file{False} 和 \file{True}。\\
+\file{reset_result} & 切换标签或开始新任务时清掉旧样本、行列与状态，避免把上次的窗口内容当作这次的结果。\\
+\file{launch} & 在主线程读取当前控件，构造参数快照。校验后锁定输入，连接结果和结束信号，再启动工作线程。\\
+\file{Task.__init__} & 保存参数和父对象。让窗口持有线程对象，使它在处理完成之前保持有效。\\
+\file{Task.run} & 在工作线程调用引擎。进度通过 \file{tick} 传回，成功发 \file{ready}，异常发 \file{failed}；这两条路径都会触发 Qt 的结束通知。\\
+\file{progress} & 接收文件序号与相对路径，在主线程更新状态栏，供用户看到已处理到哪个文件。\\
+\file{completed} & 接收整份结果，保存清单，填充样本下拉框，挑选首个结果并交给 \file{display} 显示。\\
+\file{display} & 索引 0 显示文件明细；其他索引取相应产物的样本。重设行列数，再逐格填入文本。\\
+\file{finished} & 工作线程结束时释放引用、恢复输入和标签；如果用户曾请求关闭，此时再次关闭窗口。\\
+\file{closeEvent} & 空闲时接受关闭事件。任务进行中则标记关闭请求，让当前批次完成后退出。\\\bottomrule
+\end{tabularx}
+
+\textbf{自己解释一次}\quad 假定列名拼错，窗口能显示原因并允许下一次操作。沿 \file{products}、\file{Task.run}、\file{failed} 和 \file{finished} 走一遍，指出错误在哪一层产生、哪一层把它变成文字、哪一层重新启用按钮。
+\newpage
+\partlabel{独立复现 · 源码对照}
+\section{从练习程序走到完整项目}\phantomsection\label{lab:production}
+练习工作台已经可以独立处理六类任务。要做出交付版，按下面的顺序一次扩展一件事。每行都给出要实现的变化、正式项目的落点和能推翻错误实现的样例。用测试函数名在编辑器里搜索即可找到输入数据与断言。
+
+\begin{tabularx}{\linewidth}{@{}p{.19\linewidth}YY@{}}\toprule
+\textbf{扩展} & \textbf{实现方法与落点} & \textbf{反例与验收}\\\midrule
+更多改名规则 & 把计算目标名提取为 \file{rename_to}，模板语法、查找替换、前后缀最后统一校验。用 \file{Outputs.allocate} 登记已占用的相对名。 & 两个文件的模板均为“结果”：副本应产生两个不同的名字；路径分隔符不能混进新文件名。\\
+原位改名与撤销 & 在 \file{rename_originals} 先枚举并校验映射，再逐个改名。登记路径与 \file{fingerprint}，撤销在 \file{undo_renames} 里逆序进行。 & 改名后在原路径另建文件，再撤销。两个文件均应保留，清单指出名称冲突。\\
+文本、图片与分类 & \file{compile_match} 统一正则和大小写；\file{convert_image} 将单帧验证、方向、锐化、输出格式组合；\file{category} 按业务类型归类。 & 正则替换 GBK 文本后用 GBK 读回；将同一张透明图输出为五种格式，用 Pillow 重新打开并核对格式与像素尺寸。\\
+表格的列与行 & \file{table_frame} 保留来源；\file{transform_tables} 先验证列，再筛选和投影。以多个列名组成列表传入去重与分组。 & 列序颠倒、缺列、重复键、非数值金额和只有表头的工作表分别测试。错误应指出来源，已有文件不可覆盖。\\
+界面及清单 & \file{RuleForm.refresh} 控制行可见性，\file{options} 只读当前规则；\file{FileModel} 向视图按需提供可见行。 & 在“分组汇总”填写金额列，再切换“CSV 转 Excel”。导出的转换规则应不含多余的金额字段。\\\bottomrule
+\end{tabularx}
+
+\subsection{给一次真实点击设三个断点}
+用正式项目的 \file{main.py} 启动。选“表格处理 → 分组汇总”，依次在 \file{Workbench.start_batch} 采集规则之后、\file{transform_tables} 完成分组之后、\file{Workbench.show_sample} 设置表格之前暂停。观察同一件事如何变化：第一处是规则 \file{keys="sku"} 与 \file{amount="qty"}，第二处是三行数据框，第三处是字符串单元格数组。首次出现偏差的位置决定你该回到表单、算法还是视图。
+
+\subsection{查接口，检验自己的实现}
+前两条命令在练习目录查本地接口。最后一条在正式项目根目录运行：\file{test_tools.py} 检验文件和数据，\file{test_desktop.py} 通过真实按钮检验表单、线程和视图的连接。
+\begin{lstlisting}[style=lab]
+python -m pydoc re.Pattern.subn
+python -m pydoc PyQt6.QtCore.QThread
+.\.venv-build\Scripts\python.exe -m unittest discover -s tests -v
+\end{lstlisting}
+\newpage
+\partlabel{成品对照 · 数据}
 \section{先做出一张能追溯的合并表}
 \subsection{第一步：能解释每个输入从哪里来}
-新建自己的 \file{batch_tool.py}。先只接收输入、输出两个目录，用 \file{argparse} 打印参数，然后用 \file{os.walk} 枚举输入。对每层目录和文件名排序，打印 \file{path.relative_to(root)}。用上一页的样本对照一次，两个 \file{photo.png} 应有不同的相对路径。把输出放在输入的子目录再试一次，递归前从 \file{dirs[:]} 删除输出目录。正式脚本的 \file{input_files} 实现了这一步。
+新建自己的 \file{batch_tool.py}。先只接收输入、输出两个目录，用 \file{argparse} 打印参数，然后用 \file{os.walk} 枚举输入。对每层目录和文件名排序，打印 \file{path.relative_to(root)}。用第 2 页的样本对照一次，两个 \file{photo.png} 应有不同的相对路径。把输出放在输入的子目录再试一次，递归前从 \file{dirs[:]} 删除输出目录。正式脚本的 \file{input_files} 实现了这一步。
 
 \subsection{第二步：一次只读一张表}
 先用 \file{csv.reader} 读取 CSV 并打印每条记录的编号。用 \file{enumerate(rows, 1)} 在清除空行之前编号。在样本里 \file{NA} 的编号应是 4。带引号的多行 CSV 字段仍占一条记录；Excel 的编号就是工作表行号。
@@ -130,7 +1025,7 @@ assert aligned.iloc[0].tolist() == ["0012", 4, "rush"]
 \newpage
 \partlabel{从空文件实现 · 文件与图片}
 \section{给每个文件一条能核对的去向}
-\subsection{第四步：先转换一张透明 PNG}
+\subsection{第四步：先转换一张透明 PNG}\phantomsection\label{lab:sharpen}
 在样例上运行下面的片段，观察透明角落转成 JPEG 后的颜色。JPEG 无透明通道，需要用原图的 alpha 作为蒙版，把可见内容贴到白色画布上。手机照片先按 EXIF 方向旋转，再执行后续处理。
 \begin{lstlisting}[language=Python]
 from PIL import Image, ImageOps, ImageFilter
@@ -202,7 +1097,7 @@ PowerShell 中用 \file{$LASTEXITCODE} 查看脚本退出码。只有跳过项�
 图片转换 & 输出 JPEG、PNG、WebP、BMP 或 TIFF。JPEG/WebP 可调编码质量，支持方向校正与轻度锐化。\\
 文件整理 & 按类型或修改月份分类。内容查重生成 CSV，列出同组的全部相对路径。\\
 表格处理 & 合并、筛选、列选择、跨表去重、分组汇总、按值拆分，以及 CSV/XLSX 互转。\\
-一键归档 & 执行前五页的组合流程，一次生成工作簿、图片、文档副本与 ZIP。\\\bottomrule
+一键归档 & 执行成品中的组合流程，一次生成工作簿、图片、文档副本与 ZIP。\\\bottomrule
 \end{tabularx}
 \newpage
 \partlabel{表格实操}
