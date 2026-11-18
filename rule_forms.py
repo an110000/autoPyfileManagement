@@ -37,13 +37,21 @@ class RuleForm(QWidget):
                 self.number("quality", "编码质量", 1, 100, 90)
             self.check("sharpen", "轻度锐化图片边缘")
         elif mode == "文件整理":
-            self.choice("rule", "整理方式", ["按类型", "按修改月份", "查找重复"])
+            self.choice("rule", "整理方式", ["按类型", "按修改月份", "查找重复", "文件清单"])
         elif mode == "表格处理":
-            self.choice("rule", "操作", ["按列合并", "按键去重", "分组汇总", "按值拆分", "CSV 转 Excel", "Excel 转 CSV"])
+            self.choice("rule", "操作", ["按列合并", "按键去重", "分组汇总", "按值拆分", "CSV 转 Excel", "Excel 转 CSV", "工作表目录"])
+            self.line("sheet_pattern", "工作表名", hint="留空处理全部；如 *岗位*，仅选 Excel 表")
+            self.number("header_row", "表头起始行", 0, 1048576, 0)
+            self.fields["header_row"].setSpecialValueText("自动识别")
+            self.number("header_depth", "表头占用行数", 1, 8, 1)
+            self.fields["header_row"].valueChanged.connect(self.refresh)
             self.line("keys", "分组 / 去重列", hint="如 客户,订单号")
             self.line("amount", "数值列", hint="如 金额")
             self.line("filter_column", "筛选列", hint="可选，如 状态")
-            self.line("filter_value", "精确等于", hint="与筛选列配合使用")
+            self.choice("filter_op", "筛选条件", ["精确等于", "包含文字", "正则匹配", "为空", "非空"])
+            self.line("filter_value", "匹配值", hint="输入文字或正则表达式")
+            self.fields["filter_column"].textChanged.connect(self.refresh)
+            self.fields["filter_op"].currentTextChanged.connect(self.refresh)
             self.line("columns", "保留业务列", hint="用逗号分隔，留空保留全部")
         if "rule" in self.fields:
             self.fields["rule"].currentTextChanged.connect(self.refresh)
@@ -89,8 +97,18 @@ class RuleForm(QWidget):
         elif self.mode == "表格处理":
             rule = self.fields["rule"].currentText()
             visible = {"rule"}
-            if rule not in ("CSV 转 Excel", "Excel 转 CSV"):
-                visible.update(["filter_column", "filter_value"])
+            if rule != "CSV 转 Excel":
+                visible.add("sheet_pattern")
+            if rule != "工作表目录":
+                visible.add("header_row")
+                if self.fields["header_row"].value():
+                    visible.add("header_depth")
+            if rule not in ("CSV 转 Excel", "Excel 转 CSV", "工作表目录"):
+                visible.add("filter_column")
+                if self.fields["filter_column"].text().strip():
+                    visible.add("filter_op")
+                    if self.fields["filter_op"].currentText() not in ("为空", "非空"):
+                        visible.add("filter_value")
                 visible.add("amount" if rule == "分组汇总" else "columns")
                 if rule != "按列合并":
                     visible.add("keys")

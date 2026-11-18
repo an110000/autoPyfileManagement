@@ -1,7 +1,9 @@
 """回归样例均由测试生成，不读取个人文件。运行 python -m unittest discover -s tests。"""
 
 import codecs
+import csv
 import json
+import shutil
 import tempfile
 import unittest
 import zipfile
@@ -140,3 +142,124 @@ class ToolTests(unittest.TestCase):
         result, _ = self.execute("表格处理", rule="CSV 转 Excel")
         rows = self.workbook_rows(result, "表格/a.xlsx")
         self.assertEqual(rows[1], ("001","东","1.1"))
+
+    def test_titles_grouped_headers_and_late_columns(self):
+        """同一本表内分别识别横幅、两层表头和单列表头，迟到的额外值也要留存。"""
+        book = Workbook()
+        ws = book.active
+        ws.title = "分组"
+        ws.append(["月度台账"])
+        ws.merge_cells("A1:C1")
+        ws.append(["货号", "订单"])
+        ws.merge_cells("A2:A3")
+        ws.merge_cells("B2:C2")
+        ws.append([None, "数量", "金额"])
+        ws.append(["001", 2, 10])
+        ws.append(["002", 3, 12, "附注"])
+        flat = book.create_sheet("单列表头")
+        flat.append(["姓名"])
+        flat.append(["甲", "乙"])
+        book.save(self.root / "新表.xlsx")
+        cfg = dict(rule="Excel 转 CSV")
+        _, preview = self.execute("表格处理", True, **cfg)
+        self.assertFalse(self.out.exists())
+        result, report = self.execute("表格处理", **cfg)
+        self.assertEqual(preview, report)
+        self.assertIn("表头第 2–3 行", report["files"][0]["detail"])
+        self.assertEqual(report["summary"]["rows"], 3)
+        product, single = report["products"]
+        self.assertEqual(product["sample_columns"], ["货号", "数量", "金额", "未命名列_4"])
+        with (result / product["output"]).open(encoding="utf-8-sig", newline="") as stream:
+            self.assertEqual(list(csv.reader(stream))[1:], [["001","2","10",""], ["002","3","12","附注"]])
+        self.assertEqual(single["sample_rows"], [["甲", "乙"]])
+        result, merged = self.execute("表格处理", rule="按列合并")
+        self.assertEqual([row[2] for row in self.workbook_rows(result, merged["products"][0]["output"])[1:]],
+                         [4, 5, 2])
+
+    def test_csv_manual_header_and_unnamed_collision(self):
+        """手选 CSV 的原始记录号；缺标题列与真实同名列必须分别保存。"""
+        (self.root / "订单.csv").write_text("说明\n\n货号,,未命名列_2\n001,东,7,extra\n", encoding="utf-8")
+        cfg = dict(rule="按列合并", header_row=3)
+        _, report = self.execute("表格处理", True, **cfg)
+        p = report["products"][0]
+        self.assertEqual(p["sample_columns"], ["货号", "未命名列_2_", "未命名列_2", "未命名列_4"])
+        self.assertEqual(p["sample_rows"], [["001","东","7","extra"]])
+        _, bad = self.execute("表格处理", True, rule="按列合并", header_row=10)
+        self.assertIn("第 10 行", bad["files"][0]["reason"])
+        (self.root / "订单.csv").write_text("编号,编号\n1,2", encoding="utf-8")
+        _, duplicate = self.execute("表格处理", True, rule="按列合并")
+        self.assertEqual(duplicate["summary"]["error"], 1)
+
+    def test_legacy_excel_sheet_conversion(self):
+        """真实的合成 BIFF 工作簿含前导零、日期、布尔和跨两层的重复子标题。"""
+        shutil.copyfile(Path(__file__).parent / "fixtures/legacy_orders.xls", self.root / "历史.xls")
+        result, report = self.execute("表格处理", rule="Excel 转 CSV")
+        actual, empty = report["products"]
+        self.assertEqual(actual["sample_columns"], ["货号", "订货 / 数量", "日期", "交付 / 数量", "完成"])
+        self.assertEqual(actual["sample_rows"], [["0012", "4", "2025-01-07 00:00:00", "2", "True"]])
+        self.assertEqual(empty["sample_rows"], [])
+        self.assertTrue((result / empty["output"]).is_file())
+        _, totals = self.execute("表格处理", True, rule="分组汇总", keys="货号", amount="交付 / 数量")
+        self.assertEqual(totals["products"][0]["sample_rows"], [["0012","1","2"]])
+
+    def test_inventory_and_categories(self):
+        """分类、清单与预览应一致，空文件保留零字节，相同名字按原目录区分。"""
+        categories = {"a.PPTX":"演示文稿", "a.mp4":"视频", "a.WOFF2":"字体", "a.wav":"音频",
+                      "a.JSON":"数据", "a.py":"程序", "a.svg":"图片", "a.xls":"表格", "a.bin":"其他"}
+        for name in categories:
+            (self.root / name).write_bytes(b"")
+        (self.root / "sub").mkdir()
+        (self.root / "sub/a.wav").write_bytes(b"abc")
+        _, preview = self.execute("文件整理", True, rule="文件清单")
+        self.assertFalse(self.out.exists())
+        result, report = self.execute("文件整理", rule="文件清单")
+        self.assertEqual(report, preview)
+        with (result / "文件清单.csv").open(encoding="utf-8-sig", newline="") as stream:
+            rows = {r["相对路径"]: r for r in csv.DictReader(stream)}
+        self.assertEqual(report["summary"]["rows"], 10)
+        self.assertEqual(rows["sub/a.wav"]["大小（字节）"], "3")
+        for name, category in categories.items():
+            self.assertEqual(rows[name]["类别"], category)
+            self.assertEqual(rows[name]["大小（字节）"], "0")
+        _, sorted_files = self.execute("文件整理", True, rule="按类型")
+        self.assertEqual(sorted_files["files"][-1]["output"], "分类/音频/a (2).wav")
+
+    def test_catalog_and_sheet_selection_before_reading(self):
+        """列出所有表名时无需验证内容；只选中第二张表转换时保留原始序号。"""
+        b = Workbook()
+        b.active.title = "说明"
+        b.active.append(["重复", "重复"])
+        sheet = b.create_sheet("一月岗位")
+        sheet.append(["编号", "备注"])
+        sheet.append(["001", "东区"])
+        b.save(self.root / "部门.xlsx")
+        shutil.copyfile(Path(__file__).parent / "fixtures/legacy_orders.xls", self.root / "历史.xls")
+        (self.root / "旁注.csv").write_text("编号\n002\n", encoding="utf-8")
+        _, catalog = self.execute("表格处理", True, rule="工作表目录")
+        rows = catalog["products"][0]["sample_rows"]
+        self.assertIn(["部门.xlsx", "2", "一月岗位"], rows)
+        self.assertIn(["历史.xls", "2", "空表"], rows)
+        self.assertEqual(catalog["summary"], dict(ok=2, skipped=1, error=0, rows=4))
+        self.assertFalse(self.out.exists())
+        result, report = self.execute("表格处理", rule="Excel 转 CSV", sheet_pattern="*岗位")
+        self.assertEqual(report["summary"], dict(ok=1, skipped=2, error=0, rows=1))
+        self.assertTrue((result / "表格/部门.xlsx/002_一月岗位.csv").is_file())
+        _, old = self.execute("表格处理", True, rule="按列合并", sheet_pattern="订单")
+        self.assertEqual(old["summary"], dict(ok=1, skipped=2, error=0, rows=1))
+
+    def test_table_filters(self):
+        """普通包含将标点视为文字；正则和空值按行筛选，写出的结果与预览相同。"""
+        (self.root / "项目.csv").write_text("编号,备注\n001,A.1\n002,A21\n003,\n",encoding="utf-8")
+        cases = [("包含文字", ".", ["001"]), ("正则匹配", "^A[0-9]", ["002"]),
+                 ("为空", "", ["003"]), ("非空", "", ["001","002"]), ("精确等于", "A.1", ["001"])]
+        for op, value, expected in cases:
+            with self.subTest(op=op):
+                cfg = dict(rule="按列合并", filter_column="备注", filter_op=op, filter_value=value)
+                _, preview = self.execute("表格处理", True, **cfg)
+                result, executed = self.execute("表格处理", **cfg)
+                self.assertEqual(executed, preview)
+                rows = self.workbook_rows(result, executed["products"][0]["output"])
+                self.assertEqual([r[3] for r in rows[1:]], expected)
+        with self.assertRaisesRegex(ValueError, "筛选正则无效"):
+            self.execute("表格处理", True, rule="按列合并", filter_column="备注",
+                         filter_op="正则匹配", filter_value="[")

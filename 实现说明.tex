@@ -1006,7 +1006,7 @@ python -m pydoc PyQt6.QtCore.QThread
 \subsection{第二步：一次只读一张表}
 先用 \file{csv.reader} 读取 CSV 并打印每条记录的编号。用 \file{enumerate(rows, 1)} 在清除空行之前编号。在样本里 \file{NA} 的编号应是 4。带引号的多行 CSV 字段仍占一条记录；Excel 的编号就是工作表行号。
 
-接着用 \file{load_workbook(..., read_only=True, data_only=False)} 打开 XLSX，把每个工作表的 \file{sheet.values} 交给同一个函数。第一条非空记录给出列名，数据行去除文本首尾空白，短行尾部补空值。重复列名、表头中间缺名或数据宽过表头时，报出工作表与行号。一个工作簿的所有工作表读取成功后再收下整本数据，避免坏表造成半本入账。
+接着用 \file{load_workbook(..., read_only=True, data_only=False)} 打开 XLSX，把每个工作表的 \file{sheet.values} 交给同一个函数。练习版先要求单行完整表头。正式版还读取合并范围，识别横幅下的多行表头，按列号补齐缺少的名字。无法区分的重复表头仍需修正。一本工作簿中选定的工作表全部读取成功后，再把它们纳入汇总。第 \pageref{advanced:headers} 页有实际操作。
 
 \subsection{第三步：手算一次“按名对齐”}
 东区表头为 \file{sku,qty}，西区为 \file{qty,sku,note}。先按首次遇到的次序收集列名，得到 \file{sku,qty,note}。打开 Python 解释器，做下面的最小实验。
@@ -1095,8 +1095,8 @@ PowerShell 中用 \file{$LASTEXITCODE} 查看脚本退出码。只有跳过项�
 批量重命名 & 模板序号、查找替换、前后缀、后缀筛选。默认输出副本；勾选原位改名可修改原件并在本次会话撤销最近一次改名。\\
 文本替换 & 普通文本、正则表达式、捕获组引用、大小写和编码选项。列出匹配次数与首个匹配示例。\\
 图片转换 & 输出 JPEG、PNG、WebP、BMP 或 TIFF。JPEG/WebP 可调编码质量，支持方向校正与轻度锐化。\\
-文件整理 & 按类型或修改月份分类。内容查重生成 CSV，列出同组的全部相对路径。\\
-表格处理 & 合并、筛选、列选择、跨表去重、分组汇总、按值拆分，以及 CSV/XLSX 互转。\\
+文件整理 & 按十类文件或修改月份整理副本。支持查重及导出文件清单，清单含相对路径、字节数和时间。\\
+表格处理 & 支持 CSV、XLS 和 XLSX。可先浏览工作表目录，再按表名选择、筛选、合并、去重、汇总、拆分或转换。\\
 一键归档 & 执行成品中的组合流程，一次生成工作簿、图片、文档副本与 ZIP。\\\bottomrule
 \end{tabularx}
 \newpage
@@ -1124,7 +1124,7 @@ data["qty"] = data["qty"].map(Decimal)
 totals = data.groupby("sku", sort=False)["qty"].sum()
 assert totals.loc["0012"] == Decimal("6")
 \end{lstlisting}
-“输出行数”统计最终记录数，分组后就是组数。文件清单中的 \file{rows} 则是原文件的输入行数。预览展示每件表格产物的前 5 行、前 24 个业务列；导出使用完整数据。合并、去重和拆分需要内存容纳本批数据。CSV 转换输出解析后的单元格值，公式保存为原文。
+“输出行数”统计最终记录数，分组后就是组数。文件明细中的 \file{rows} 是该输入的记录数。预览展示每件表格产物的前 5 行、前 24 个业务列；导出使用完整数据。合并、去重和拆分需要内存容纳本批数据。XLSX 公式按文本原样读取，旧 XLS 公式取文件保存的缓存值。
 \newpage
 \partlabel{独立实现与验收}
 \section{按模块复现，再用反例检查}
@@ -1144,6 +1144,27 @@ assert totals.loc["0012"] == Decimal("6")
 函数入口均有中文文档字符串。可执行 \file{python -m pydoc batch_ops.transform_tables} 查看说明，再对照 \file{tests/test_tools.py} 中的输入、断言、输出三部分独立复现。
 \subsection{设计参考}
 功能标签、操作前预览和共享结果区参考 JingBing-GHT 的 Smart-File-Batch-Processor。此项目使用 PyQt6 实现，并增加表格规则、数据样本与规则重放。参考仓库：\url{https://github.com/JingBing-GHT/Smart-File-Batch-Processor}。
+\newpage
+\partlabel{正式项目 · 复杂工作表}
+\section{表头占了三行，怎样选对数据}\phantomsection\label{advanced:headers}
+双击项目中的“启动工作台.cmd”，进入“表格处理”。把输入目录设为 \file{tests/fixtures}。其中的 \file{legacy_orders.xls} 是本页配套的合成工作簿。
+
+\subsection{先查目录，再选择要处理的工作表}
+选“工作表目录”并点“预览结果”。该文件有“订单”和“空表”两张表，目录顺序是 1、2。改选“Excel 转 CSV”，在“工作表名”填“订单”，再次预览，应有一行、五个业务列，第一项货号为 0012。此框还支持 \file{*} 和 \file{?}；例如 \file{*岗位*} 会选中表名含“岗位”的所有工作表。留空则处理全部，指定名称时 CSV 会跳过。执行时目录产生完整的 CSV，转换会按工作表原序号命名。
+
+\subsection{沿一张表核对表头识别}
+样例的第一行是横幅，第二行含两个分组“订货”和“交付”，第三行各有子标题“数量”，第四行才是订单。先用“自动识别”，文件明细应显示“表头第 2–3 行”。如需手动指定，在“表头起始行”填 2，“表头占用行数”填 2。两个数量列会分别显示为“订货 / 数量”和“交付 / 数量”，值分别为 4 和 2。手填的范围应用于所有选中的表，版式不同的表可先按表名分开处理。
+
+\begin{tabularx}{\linewidth}{@{}lY@{}}\toprule
+观察到的现象 & 怎么实现、怎么验证\\\midrule
+第一行只有大标题 & \file{header_span} 检查合并坐标和后续文字行，识别合并横幅。没有合并信息的说明行可手选起始行。普通单列表的第一条记录仍能保留。\\
+子表头或者右边缺名 & \file{column_names} 沿各列收集父子标题。真实数据超出已命名范围时，\file{table_frame} 按位置生成“未命名列\_4”等名称，早先的短行在这里留空。用原行号复查末列内容。\\
+只导出指定表、指定行 & \file{matches_sheet} 在读表格内容前匹配表名。合并后的 \file{filter_rows} 支持精确相等、包含文字、正则、为空和非空，之后才去重或汇总。旧规则默认精确相等。\\\bottomrule
+\end{tabularx}
+
+\textbf{独立验证}\quad 把操作改为“按列合并”，工作表仍选“订单”，筛选列填“货号”。用“正则匹配”输入 \verb|^00| 可得到一行；改成“为空”应得到零行。随后把正则写成单个左方括号，应看到规则错误，输出目录中也不会多出本次批次。
+
+\textbf{设计参考}\quad 选择工作表参考 csvkit 的 \href{https://github.com/wireservice/csvkit/blob/master/csvkit/utilities/in2csv.py}{in2csv}；文本及空值筛选参考 \href{https://github.com/OpenRefine/openrefine.org/blob/master/docs/manual/facets.md}{OpenRefine 的筛选文档}。执行由本项目的 Python 函数完成。
 \newpage
 \partlabel{Windows 交付}
 \section{在独立虚拟环境中打包}

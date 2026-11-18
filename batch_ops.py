@@ -15,13 +15,22 @@ from pathlib import Path
 import pandas as pd
 from PIL import Image
 
-from batch_tool import DOCUMENTS, IMAGES, SOURCE_COLUMNS, convert_image, input_files, publish
-from batch_tool import read_tables, write_workbook
+from batch_tool import DOCUMENTS, EXCEL_INPUTS, IMAGES, SOURCE_COLUMNS, TABLES, convert_image, input_files, publish
+from batch_tool import matches_sheet, read_tables, sheet_names, write_workbook
 
 
 TEXT = {".txt", ".md", ".log", ".csv", ".tsv", ".json", ".xml", ".html", ".ini", ".yaml", ".yml"}
-TABLES = {".csv", ".xlsx"}
 IMAGE_OUTPUTS = {"JPEG": ".jpg", "PNG": ".png", "WEBP": ".webp", "BMP": ".bmp", "TIFF": ".tiff"}
+INVENTORY_COLUMNS = ["相对路径", "文件名", "类别", "扩展名", "大小（字节）", "修改时间", "创建时间"]
+FILE_CATEGORIES = {
+    "演示文稿": {".ppt", ".pptx", ".pps", ".ppsx"},
+    "视频": {".mp4", ".avi", ".mov", ".wmv", ".flv", ".mkv", ".webm"},
+    "音频": {".mp3", ".wav", ".flac", ".aac", ".m4a", ".ogg"},
+    "压缩包": {".zip", ".rar", ".7z", ".tar", ".gz", ".bz2", ".xz"},
+    "程序": {".exe", ".msi", ".bat", ".cmd", ".sh", ".py", ".js", ".html", ".css"},
+    "字体": {".ttf", ".otf", ".woff", ".woff2"},
+    "数据": {".json", ".xml", ".sql", ".db", ".sqlite", ".yaml", ".yml"},
+}
 INVALID_NAME = re.compile(r'[<>:"/\\|?*\x00-\x1f]')
 
 
@@ -210,15 +219,25 @@ def rename_originals(root, output, options, selected, preview, progress):
 def category(path):
     """按后缀给出分类子目录，不能识别的文件放入“其他”。"""
     ext = path.suffix.lower()
-    if ext in TABLES:
+    if ext in TABLES or ext == ".tsv":
         return "表格"
-    if ext in IMAGES:
+    if ext in IMAGES or ext == ".svg":
         return "图片"
+    for group, suffixes in FILE_CATEGORIES.items():
+        if ext in suffixes:
+            return group
     if ext in DOCUMENTS or ext in TEXT:
         return "文档"
-    if ext in {".zip", ".7z", ".rar", ".gz", ".tar"}:
-        return "压缩包"
     return "其他"
+
+
+def inventory_row(path, relative):
+    """读取一次 stat，返回可导出的目录记录；系统未提供创建时间时留空。"""
+    info = path.stat()
+    created = getattr(info, "st_birthtime", info.st_ctime if os.name == "nt" else None)
+    modified = datetime.fromtimestamp(info.st_mtime).isoformat(sep=" ", timespec="seconds")
+    birth = datetime.fromtimestamp(created).isoformat(sep=" ", timespec="seconds") if created is not None else ""
+    return [relative.as_posix(), path.name, category(path), path.suffix.lower(), info.st_size, modified, birth]
 
 
 class Outputs:
@@ -248,6 +267,73 @@ def columns(text):
     return list(dict.fromkeys(c.strip() for c in re.split("[,，]", text) if c.strip()))
 
 
+def table_product(frame, name):
+    """将产物的前五行映射到窗口样本；文件写入和计数始终使用完整数据。"""
+    business = [col for col in frame.columns if col not in SOURCE_COLUMNS][:24]
+    rows = [["" if pd.isna(v) else str(v)[:160] for v in row]
+            for row in frame[business].head(5).itertuples(index=False, name=None)]
+    return {"output": name, "rows": len(frame), "sample_columns": business, "sample_rows": rows}
+
+
+def filter_rows(data, field, options):
+    """在合并后的指定列上筛选；缺失与空串同为空值，旧规则默认精确比较。"""
+    series = data[field].astype("string").fillna("")
+    value = options.get("filter_value", "")
+    operator = options.get("filter_op", "精确等于")
+    if operator == "精确等于":
+        mask = series == value
+    elif operator == "包含文字":
+        mask = series.str.contains(value, regex=False)
+    elif operator == "正则匹配":
+        try:
+            pattern = re.compile(value)
+        except re.error as error:
+            raise ValueError(f"筛选正则无效：{error}") from error
+        mask = series.map(lambda text: pattern.search(text) is not None)
+    elif operator in {"为空", "非空"}:
+        mask = (series == "") if operator == "为空" else (series != "")
+    else:
+        raise ValueError(f"未知筛选条件：{operator}")
+    return data.loc[mask.astype(bool)]
+
+
+def describe_tables(tables):
+    """列出各工作表的实际表头行与补齐的列名，供文件明细及导出清单核对。"""
+    descriptions = []
+    for table in tables:
+        title = table.attrs["sheet"] or "CSV"
+        span = table.attrs["header_span"]
+        if span is None:
+            descriptions.append(f"{title} 空表")
+            continue
+        first, last = span
+        location = str(first) if first == last else f"{first}–{last}"
+        note = f"{title} 表头第 {location} 行"
+        if table.attrs["unnamed"]:
+            note += "，补列 " + "、".join(table.attrs["unnamed"])
+        descriptions.append(note)
+    return "；".join(descriptions)
+
+
+def convert_tables(tables, relative, destination):
+    """转换单份输入的全部选中工作表。仅在整份成功后返回样本，避免残留部分结果。"""
+    products = []
+    for table in tables:
+        frame = table.drop(columns=SOURCE_COLUMNS)
+        if relative.suffix.lower() == ".csv":
+            name, target = destination(Path("表格") / relative.with_suffix(".xlsx"))
+            if target:
+                write_workbook([frame], target)
+        else:
+            title = slug(table.attrs["sheet"])
+            number = table.attrs["sheet_number"]
+            name, target = destination(Path("表格") / relative / f"{number:03d}_{title}.csv")
+            if target:
+                frame.to_csv(target, index=False, encoding="utf-8-sig")
+        products.append(table_product(frame, name))
+    return products
+
+
 def transform_tables(frames, options, outputs):
     """全批次按名对齐后筛选、去重、分组或拆分，返回产物列表及输出行数。"""
     if not frames:
@@ -271,7 +357,7 @@ def transform_tables(frames, options, outputs):
     if missing:
         raise ValueError(f"找不到列 {', '.join(missing)}；可用列：{', '.join(data.columns)}")
     if field:
-        data = data[data[field].fillna("").astype(str) == options.get("filter_value", "")]
+        data = filter_rows(data, field, options)
     if action == "按键去重":
         data = data.drop_duplicates(subset=keys, keep="first")
     if action == "分组汇总":
@@ -301,13 +387,7 @@ def transform_tables(frames, options, outputs):
         rel, target = outputs.allocate(Path("表格") / name)
         if target:
             write_workbook([frame], target)
-        # 预览只保存有限个单元格；Excel 和行数统计始终使用完整数据。
-        business = [c for c in frame.columns if c not in SOURCE_COLUMNS][:24]
-        sample_rows = [
-            ["" if pd.isna(v) else str(v)[:160] for v in row]
-            for row in frame[business].head(5).itertuples(index=False, name=None)
-        ]
-        products.append({"output": rel, "rows": len(frame), "sample_columns": business, "sample_rows": sample_rows})
+        products.append(table_product(frame, rel))
 
     if action == "按值拆分":
         group_key = keys[0] if len(keys) == 1 else keys
@@ -331,13 +411,15 @@ def perform(root, output, options, selected=None, preview=False, progress=None):
     pattern = compile_match(options) if mode == "文本替换" else None
     allowed = {"图片转换": IMAGES, "文本替换": TEXT, "表格处理": TABLES}.get(mode)
     if mode == "表格处理":
-        allowed = {"CSV 转 Excel": {".csv"}, "Excel 转 CSV": {".xlsx"}}.get(options["rule"], TABLES)
+        allowed = {"CSV 转 Excel": {".csv"}, "Excel 转 CSV": EXCEL_INPUTS, "工作表目录": EXCEL_INPUTS}.get(options["rule"], TABLES)
+    sheet_pattern = options.get("sheet_pattern", "").strip() if mode == "表格处理" else ""
 
     def process(stage):
         """遍历选定文件，逐项形成记录；需要跨文件的数据处理放到遍历结束后。"""
         outputs = Outputs(stage)
         entries, frames, products = [], [], []
         hashes = defaultdict(list)
+        inventory = []
         paths = selected if selected is not None else input_files(root, output)
         seq = options.get("start", 1)
         extensions = {v.lower().lstrip(".") for v in columns(options.get("extensions", ""))}
@@ -385,7 +467,11 @@ def perform(root, output, options, selected=None, preview=False, progress=None):
                         convert_image(path, dest, options["sharpen"], options["quality"])
                 elif mode == "文件整理":
                     rule = options["rule"]
-                    if rule == "查找重复":
+                    if rule == "文件清单":
+                        record = inventory_row(path, rel)
+                        inventory.append(record)
+                        item["detail"] = f"{record[2]} · {record[4]} 字节 · {record[5]}"
+                    elif rule == "查找重复":
                         key = (path.stat().st_size, digest(path))
                         group = hashes[key]
                         item["detail"] = f"与 {group[0]} 内容相同" if group else "首次出现"
@@ -395,28 +481,29 @@ def perform(root, output, options, selected=None, preview=False, progress=None):
                         item["output"], dest = destination(Path("分类") / folder / path.name)
                         if dest:
                             shutil.copy2(path, dest)
-                elif mode == "表格处理":
-                    tables = read_tables(path, rel.as_posix())
-                    item["rows"] = sum(len(t) for t in tables)
-                    if options["rule"] in {"CSV 转 Excel", "Excel 转 CSV"}:
-                        names = []
-                        for i, table in enumerate(tables, 1):
-                            frame = table.drop(columns=SOURCE_COLUMNS)
-                            if ext == ".csv":
-                                name, dest = destination(Path("表格") / rel.with_suffix(".xlsx"))
-                                if dest:
-                                    write_workbook([frame], dest)
-                            else:
-                                title = table.attrs["sheet"]
-                                name, dest = destination(Path("表格") / rel / f"{i:03d}_{slug(title)}.csv")
-                                if dest:
-                                    frame.to_csv(dest, index=False, encoding="utf-8-sig")
-                            names.append(name)
-                        item["output"] = "、".join(names)
-                        total_rows += item["rows"]
+                elif mode == "表格处理" and options["rule"] == "工作表目录":
+                    # 目录直接读取工作表元信息，含有无效列名的工作表也可以先被找到。
+                    names = [(i, title) for i, title in enumerate(sheet_names(path), 1)
+                             if matches_sheet(title, sheet_pattern)]
+                    if names:
+                        inventory.extend((rel.as_posix(), i, title) for i, title in names)
+                        item.update(rows=len(names), detail="、".join(title for _, title in names))
                     else:
-                        frames.extend(tables)
-                        item["detail"] = f"读取 {len(tables)} 张表 · {item['rows']} 行"
+                        item.update(status="skipped", reason="没有匹配的工作表")
+                elif mode == "表格处理":
+                    tables = read_tables(path, rel.as_posix(), options.get("header_row", 0),
+                                         options.get("header_depth", 1), sheet_pattern)
+                    if not tables:
+                        item.update(status="skipped", reason="没有匹配的工作表")
+                    else:
+                        item.update(rows=sum(len(t) for t in tables), detail=describe_tables(tables))
+                        if options["rule"] in {"CSV 转 Excel", "Excel 转 CSV"}:
+                            converted = convert_tables(tables, rel, destination)
+                            products.extend(converted)
+                            item["output"] = "、".join(p["output"] for p in converted)
+                            total_rows += item["rows"]
+                        else:
+                            frames.extend(tables)
                 else:
                     raise ValueError(f"未知工具：{mode}")
             except Exception as error:
@@ -424,11 +511,20 @@ def perform(root, output, options, selected=None, preview=False, progress=None):
                     dest.unlink(missing_ok=True)
                 item.pop("output", None)
                 item.pop("rows", None)
+                item.pop("detail", None)
                 item.update(status="error", reason=str(error))
             if progress:
                 progress("正在预览" if preview else mode, item)
         if frames:
             products, total_rows = transform_tables(frames, options, outputs)
+        if (mode == "文件整理" and options["rule"] == "文件清单") or (mode == "表格处理" and options["rule"] == "工作表目录"):
+            headers = INVENTORY_COLUMNS if mode == "文件整理" else ["来源文件", "工作表序号", "工作表名"]
+            frame = pd.DataFrame(inventory, columns=headers)
+            name, dest = outputs.allocate(Path(options["rule"] + ".csv"))
+            if dest:
+                frame.to_csv(dest, index=False, encoding="utf-8-sig")
+            products.append(table_product(frame, name))
+            total_rows = len(frame)
         if hashes:
             groups = [paths for paths in hashes.values() if len(paths) > 1]
             name, dest = outputs.allocate(Path("重复文件.csv"))

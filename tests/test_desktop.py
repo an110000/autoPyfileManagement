@@ -10,6 +10,7 @@ os.environ.setdefault("QT_QPA_PLATFORM", "offscreen")
 
 from PyQt6.QtTest import QTest
 from PyQt6.QtWidgets import QApplication
+from openpyxl import Workbook
 
 from batch_ui import Workbench
 from rule_forms import MODES
@@ -56,5 +57,52 @@ class DesktopTests(unittest.TestCase):
                 window.start.click()
                 self.finish_task(window)
                 self.assertTrue((window.result_dir / "表格/分组汇总.xlsx").is_file())
+            finally:
+                window.close()
+
+    def test_workbook_header_controls_and_csv_sample(self):
+        """实际点击 Excel 转 CSV：验证自动识别、手选表头和原始数据在结果表中的对应。"""
+        with tempfile.TemporaryDirectory(dir=Path.cwd()) as temp:
+            root = Path(temp)
+            book = Workbook()
+            sheet = book.active
+            sheet.append(["季度清单"])
+            sheet.merge_cells("A1:B1")
+            sheet.append(["货号", "数量"])
+            sheet.append(["001", 8, "新增明细"])
+            book.save(root / "季度.xlsx")
+            window = Workbench()
+            window.show()
+            try:
+                window.source.setText(str(root))
+                window.tabs.setCurrentIndex(MODES.index("表格处理"))
+                form = window.forms.currentWidget()
+                form.fields["rule"].setCurrentText("Excel 转 CSV")
+                self.assertNotIn("header_depth", form.options())
+                window.preview.click()
+                self.finish_task(window)
+                self.assertFalse((root / "整理结果").exists())
+                self.assertEqual(window.sample.horizontalHeaderItem(2).text(), "未命名列_3")
+                self.assertEqual(window.sample.item(0, 2).text(), "新增明细")
+                form.fields["header_row"].setValue(2)
+                self.assertEqual(form.options()["header_depth"], 1)
+                window.start.click()
+                self.finish_task(window)
+                product = window.report["products"][0]
+                self.assertTrue((window.result_dir / product["output"]).is_file())
+                self.assertEqual(window.sample.item(0, 0).text(), "001")
+                form.fields["rule"].setCurrentText("工作表目录")
+                self.assertNotIn("header_row", form.options())
+                window.preview.click()
+                self.finish_task(window)
+                self.assertEqual(window.sample.item(0, 2).text(), "Sheet")
+                form.fields["rule"].setCurrentText("按列合并")
+                form.fields["sheet_pattern"].setText("Sh*")
+                form.fields["filter_column"].setText("货号")
+                form.fields["filter_op"].setCurrentText("为空")
+                self.assertNotIn("filter_value", form.options())
+                window.preview.click()
+                self.finish_task(window)
+                self.assertEqual(window.report["summary"]["rows"], 0)
             finally:
                 window.close()

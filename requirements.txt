@@ -1,4 +1,5 @@
 pandas>=1.4,<4
 openpyxl>=3.0.9,<4
+xlrd>=2.0.2,<3
 Pillow>=9,<13
 PyQt6>=6.5,<7

@@ -13,6 +13,7 @@ import time
 import zipfile
 from collections import Counter
 from datetime import datetime
+from fnmatch import fnmatchcase
 from pathlib import Path
 
 import pandas as pd
@@ -20,9 +21,14 @@ from openpyxl import Workbook, load_workbook
 from openpyxl.cell import WriteOnlyCell
 from openpyxl.styles import Font, PatternFill
 from PIL import Image, ImageFilter, ImageOps
+import xlrd
+
+from sheet_headers import MAX_HEADER_DEPTH, read_header, worksheet_merges
 
 
 SOURCE_COLUMNS = ["__来源文件", "__工作表", "__原行号"]
+EXCEL_INPUTS = {".xls", ".xlsx"}
+TABLES = EXCEL_INPUTS | {".csv"}
 IMAGES = {".jpg", ".jpeg", ".png", ".bmp", ".webp", ".tif", ".tiff", ".gif"}
 DOCUMENTS = {".doc", ".docx", ".pdf", ".ppt", ".pptx", ".txt", ".md", ".rtf"}
 EXCEL_ROWS, EXCEL_COLUMNS = 1_048_576, 16_384
@@ -64,43 +70,94 @@ def clean_value(value):
     return value or None
 
 
-def table_frame(rows, source, sheet):
-    """把一张表变为带溯源列的数据块。行号在清理空行前确定。"""
-    headers = None
-    records = []
+def numbered_rows(rows, sheet):
+    """逐行清理实际值，去掉右侧空格式单元格，保留原始行号及中间空位。"""
     for number, row in enumerate(rows, 1):
         try:
             values = [clean_value(v) for v in row]
             while values and values[-1] is None:
                 values.pop()
-            if not values:
-                continue
-            if headers is None:
-                if any(v is None for v in values):
-                    raise ValueError("表头中间有空列名")
-                headers = [str(v) for v in values]
-                if len(set(headers)) != len(headers) or set(headers).intersection(SOURCE_COLUMNS):
-                    raise ValueError("列名重复或占用了来源列名")
-                continue
-            if len(values) > len(headers):
-                raise ValueError("数据列超出表头宽度")
-            values.extend([None] * (len(headers) - len(values)))
-            records.append([source, sheet, number, *values])
         except ValueError as error:
             raise ValueError(f"{sheet or 'CSV'} 第 {number} 行：{error}") from error
-    frame = pd.DataFrame(records, columns=SOURCE_COLUMNS + (headers or []), dtype=object)
-    # 空工作表没有数据行，另存表名可让“每张表转 CSV”仍能保留原名。
-    frame.attrs["sheet"] = sheet
+        yield number, values
+
+
+def table_frame(rows, source, sheet, merges=(), header_row=0, header_depth=1):
+    """从物理行构造数据框；标题、合并表头和后续新增列均按各自的位置处理。"""
+    names, span, data = read_header(numbered_rows(rows, sheet), merges, header_row, header_depth)
+    named = [name for name in names if name is not None]
+    used = set(named)
+    if len(used) != len(named) or used.intersection(SOURCE_COLUMNS):
+        raise ValueError(f"{sheet or 'CSV'} 第 {span[0]} 行：列名重复或占用了来源列名，请检查表头")
+    generated = []
+
+    def unnamed(position):
+        """按原始列号给无标题列命名，同时避开用户实际使用的同名业务列。"""
+        name = f"未命名列_{position}"
+        while name in used:
+            name += "_"
+        used.add(name)
+        generated.append(name)
+        return name
+
+    headers = [name or unnamed(i) for i, name in enumerate(names, 1)]
+    records = []
+    for number, values in data:
+        if not values:
+            continue
+        headers.extend(unnamed(i) for i in range(len(headers) + 1, len(values) + 1))
+        values.extend([None] * (len(headers) - len(values)))
+        records.append([source, sheet, number, *values])
+    frame = pd.DataFrame(records, columns=SOURCE_COLUMNS + headers, dtype=object)
+    frame.attrs.update(sheet=sheet, header_span=span, unnamed=generated)
     return frame
 
 
-def read_tables(path, source):
-    """把 CSV 或整本 XLSX 读为带来源列的 DataFrame 列表。"""
+def xls_values(sheet, datemode):
+    """逐行还原 BIFF 单元格；日期使用工作簿的日期系统，公式读取其缓存结果。"""
+    def value(cell):
+        """将带类型的旧版单元格转换为与 XLSX 读取器一致的 Python 标量。"""
+        if cell.ctype == xlrd.XL_CELL_DATE:
+            date = xlrd.xldate_as_datetime(cell.value, datemode)
+            return date.time() if 0 <= cell.value < 1 else date
+        if cell.ctype == xlrd.XL_CELL_BOOLEAN:
+            return bool(cell.value)
+        if cell.ctype == xlrd.XL_CELL_ERROR:
+            return xlrd.error_text_from_code.get(cell.value, "#ERROR!")
+        if cell.ctype == xlrd.XL_CELL_NUMBER and cell.value.is_integer():
+            return int(cell.value)
+        return cell.value
+
+    for i in range(sheet.nrows):
+        yield (value(cell) for cell in sheet.row(i))
+
+
+def matches_sheet(title, pattern):
+    """空规则选择全部，否则用不区分大小写的通配符匹配完整工作表名。"""
+    return not pattern or fnmatchcase(title.casefold(), pattern.casefold())
+
+
+def sheet_names(path):
+    """仅读取工作簿目录，返回可处理的数据工作表名称（按原顺序，排除图表页）。"""
+    if path.suffix.lower() == ".xls":
+        with xlrd.open_workbook(str(path), on_demand=True) as book:
+            return book.sheet_names()
+    book = load_workbook(path, read_only=True)
+    try:
+        return [sheet.title for sheet in book.worksheets]
+    finally:
+        book.close()
+
+
+def read_tables(path, source, header_row=0, header_depth=1, sheet_pattern=""):
+    """按扩展名解码，多工作表共用同一套表头识别；整本成功后才交付数据。"""
     if path.suffix.lower() == ".csv":
+        if sheet_pattern:
+            return []
         def read_csv(encoding):
             """以指定编码按 CSV 记录读取，支持带引号的逗号和换行。"""
             with path.open(encoding=encoding, newline="") as stream:
-                return table_frame(csv.reader(stream, strict=True), source, "")
+                return table_frame(csv.reader(stream, strict=True), source, "", (), header_row, header_depth)
 
         try:
             frame = read_csv("utf-8-sig")
@@ -108,13 +165,33 @@ def read_tables(path, source):
             frame = read_csv("gb18030")
         return [frame]
 
-    # 保留公式原文，输出时作为文字写入。这样无需 Excel 重新计算。
+    if path.suffix.lower() == ".xls":
+        frames = []
+        with xlrd.open_workbook(str(path), formatting_info=True, on_demand=True, ragged_rows=True) as book:
+            for i, title in enumerate(book.sheet_names()):
+                if not matches_sheet(title, sheet_pattern):
+                    continue
+                sheet = book.sheet_by_index(i)
+                # xlrd 使用从零起、右端不包含的区间；在此统一为 Excel 坐标。
+                merges = [(r + 1, end, col + 1, right) for r, end, col, right in sheet.merged_cells]
+                frames.append(table_frame(xls_values(sheet, book.datemode), source, sheet.name,
+                                          merges, header_row, header_depth))
+                frames[-1].attrs["sheet_number"] = i + 1
+                book.unload_sheet(i)
+        return frames
+
+    # XLSX 保留公式原文，输出时作为文字写入。
     book = load_workbook(path, read_only=True, data_only=False)
     try:
         frames = []
-        for sheet in book.worksheets:
+        for i, sheet in enumerate(book.worksheets, 1):
+            if not matches_sheet(sheet.title, sheet_pattern):
+                continue
             sheet.reset_dimensions()
-            frames.append(table_frame(sheet.values, source, sheet.title))
+            limit = header_row + MAX_HEADER_DEPTH if header_row else EXCEL_ROWS
+            merges = worksheet_merges(sheet, limit)
+            frames.append(table_frame(sheet.values, source, sheet.title, merges, header_row, header_depth))
+            frames[-1].attrs["sheet_number"] = i
         return frames
     finally:
         book.close()
@@ -188,7 +265,7 @@ def process_files(root, output, stage, image_format, sharpen, progress=None, sel
         try:
             if path.name.startswith("~$"):
                 entry.update(status="skipped", reason="Office 临时文件")
-            elif suffix in {".csv", ".xlsx"}:
+            elif suffix in TABLES:
                 tables = read_tables(path, source)
                 frames.extend(tables)  # 整个文件读完才纳入汇总。
                 entry.update(output="合并数据.xlsx", rows=sum(len(t) for t in tables))
