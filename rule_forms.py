@@ -16,11 +16,12 @@ class RuleForm(QWidget):
         self.form.setContentsMargins(0, 0, 0, 0)
         self.form.setVerticalSpacing(8)
         if mode == "批量重命名":
-            self.choice("rule", "命名方式", ["模板序号", "查找替换", "前后缀"])
+            self.choice("rule", "命名方式", ["模板序号", "查找替换", "前后缀", "正则改名"])
             self.line("template", "文件名模板", "{name}_{n:03d}")
             self.number("start", "起始序号", 1, 999999, 1)
             self.line("find", "查找文字")
             self.line("replacement", "替换为")
+            self.check("case", "区分大小写", True)
             self.line("prefix", "前缀")
             self.line("suffix", "后缀")
             self.line("extensions", "后缀筛选", hint="如 jpg,png；留空表示全部")
@@ -28,18 +29,21 @@ class RuleForm(QWidget):
         elif mode == "文本替换":
             self.line("find", "查找内容")
             self.line("replacement", "替换为", hint="留空可删除匹配内容")
-            self.choice("encoding", "文本编码", ["自动", "utf-8", "utf-8-sig", "gb18030", "gbk", "gb2312", "ascii"])
+            self.choice("encoding", "文本编码", ["自动", "utf-8", "utf-8-sig", "utf-16-le", "utf-16-be",
+                                             "gb18030", "gbk", "gb2312", "ascii"])
             self.check("regex", "使用正则表达式")
             self.check("case", "区分大小写", True)
         elif mode in ("图片转换", "一键归档"):
             self.choice("format", "图片格式", ["JPEG", "PNG", "WEBP", "BMP", "TIFF"] if mode == "图片转换" else ["JPEG", "PNG"])
             if mode == "图片转换":
                 self.number("quality", "编码质量", 1, 100, 90)
+                self.number("max_edge", "最长边（像素）", 0, 65535, 0)
+                self.fields["max_edge"].setSpecialValueText("保留原尺寸")
             self.check("sharpen", "轻度锐化图片边缘")
         elif mode == "文件整理":
             self.choice("rule", "整理方式", ["按类型", "按修改月份", "查找重复", "文件清单"])
         elif mode == "表格处理":
-            self.choice("rule", "操作", ["按列合并", "按键去重", "分组汇总", "按值拆分", "CSV 转 Excel", "Excel 转 CSV", "工作表目录"])
+            self.choice("rule", "操作", ["按列合并", "按键去重", "分组汇总", "按值拆分", "CSV 转 Excel", "Excel 转 CSV", "工作表目录", "列质量报告"])
             self.line("sheet_pattern", "工作表名", hint="留空处理全部；如 *岗位*，仅选 Excel 表")
             self.number("header_row", "表头起始行", 0, 1048576, 0)
             self.fields["header_row"].setSpecialValueText("自动识别")
@@ -92,7 +96,9 @@ class RuleForm(QWidget):
         """根据当前规则隐藏无关参数，避免旧输入干扰新规则。"""
         if self.mode == "批量重命名":
             rule = self.fields["rule"].currentText()
-            show = {"模板序号": ["template", "start"], "查找替换": ["find", "replacement"], "前后缀": ["prefix", "suffix"]}
+            show = {"模板序号": ["template", "start"], "查找替换": ["find", "replacement"],
+                    "前后缀": ["prefix", "suffix"], "正则改名": ["find", "replacement", "case"]}
+            self.fields["replacement"].setPlaceholderText(r"例如：订单_\1" if rule == "正则改名" else "")
             visible = {"rule", "extensions", "in_place", *show[rule]}
         elif self.mode == "表格处理":
             rule = self.fields["rule"].currentText()
@@ -110,10 +116,10 @@ class RuleForm(QWidget):
                     if self.fields["filter_op"].currentText() not in ("为空", "非空"):
                         visible.add("filter_value")
                 visible.add("amount" if rule == "分组汇总" else "columns")
-                if rule != "按列合并":
+                if rule in ("按键去重", "按值拆分", "分组汇总"):
                     visible.add("keys")
         elif self.mode == "图片转换":
-            visible = {"format", "sharpen"}
+            visible = {"format", "sharpen", "max_edge"}
             if self.fields["format"].currentText() in ("JPEG", "WEBP"):
                 visible.add("quality")
         else:

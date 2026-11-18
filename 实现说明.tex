@@ -1084,7 +1084,7 @@ PowerShell 中用 \file{$LASTEXITCODE} 查看脚本退出码。只有跳过项�
 \newpage
 \partlabel{桌面工作台}
 \section{从文件选择到结果预览}
-双击“归档台.exe”或“启动工作台.cmd”。顶部标签选择任务，左栏设置目录、指定文件和规则，右栏可筛选状态、核对样本、导出清单。“预览结果”只计算，“执行处理”重新读取当前输入并生成新批次。输出目录留空时使用输入目录内的“整理结果”。
+双击“启动工作台.cmd”运行源码版。顶部选择任务，左栏设置目录、指定文件和规则，右栏可筛选状态、核对样本、导出清单。“预览结果”只计算，“执行处理”重新读取输入并生成新批次。输出目录留空时使用输入目录内的“整理结果”。
 \begin{center}
 \includegraphics[width=\linewidth,height=.39\textheight,keepaspectratio]{docs/workbench.png}
 \end{center}
@@ -1092,12 +1092,12 @@ PowerShell 中用 \file{$LASTEXITCODE} 查看脚本退出码。只有跳过项�
 
 \begin{tabularx}{\linewidth}{@{}lY@{}}\toprule
 \textbf{工具} & \textbf{操作与结果}\\\midrule
-批量重命名 & 模板序号、查找替换、前后缀、后缀筛选。默认输出副本；勾选原位改名可修改原件并在本次会话撤销最近一次改名。\\
-文本替换 & 普通文本、正则表达式、捕获组引用、大小写和编码选项。列出匹配次数与首个匹配示例。\\
-图片转换 & 输出 JPEG、PNG、WebP、BMP 或 TIFF。JPEG/WebP 可调编码质量，支持方向校正与轻度锐化。\\
+批量重命名 & 模板序号、字符串替换、正则捕获组和前后缀。默认输出副本；原位改名支持撤销。\\
+文本替换 & 预览每个文件前五处匹配的行号、原文及替换结果。自动识别带 BOM 的 UTF-16，保留字节序和换行。\\
+图片转换 & 输出五种图片格式，可设置最长边、编码质量和轻度锐化。预览显示校正方向后的输入与输出尺寸。\\
 文件整理 & 按十类文件或修改月份整理副本。支持查重及导出文件清单，清单含相对路径、字节数和时间。\\
 表格处理 & 支持 CSV、XLS 和 XLSX。可先浏览工作表目录，再按表名选择、筛选、合并、去重、汇总、拆分或转换。\\
-一键归档 & 执行成品中的组合流程，一次生成工作簿、图片、文档副本与 ZIP。\\\bottomrule
+一键归档 & 先在“ZIP 成员”筛选中查看路径。执行后一次生成工作簿、图片、文档副本与 ZIP。\\\bottomrule
 \end{tabularx}
 \newpage
 \partlabel{表格实操}
@@ -1165,6 +1165,59 @@ assert totals.loc["0012"] == Decimal("6")
 \textbf{独立验证}\quad 把操作改为“按列合并”，工作表仍选“订单”，筛选列填“货号”。用“正则匹配”输入 \verb|^00| 可得到一行；改成“为空”应得到零行。随后把正则写成单个左方括号，应看到规则错误，输出目录中也不会多出本次批次。
 
 \textbf{设计参考}\quad 选择工作表参考 csvkit 的 \href{https://github.com/wireservice/csvkit/blob/master/csvkit/utilities/in2csv.py}{in2csv}；文本及空值筛选参考 \href{https://github.com/OpenRefine/openrefine.org/blob/master/docs/manual/facets.md}{OpenRefine 的筛选文档}。执行由本项目的 Python 函数完成。
+\newpage
+\partlabel{源码实操 · 改名、替换与图片}
+\section{用三个小文件验收三种转换}
+在空输入目录放入 \file{INV_002.txt}、含六处待替换文字的文本和一张横向照片。输出目录选在输入之外。下面的预期均可先点“预览结果”核对，再点“执行处理”检查磁盘。
+
+\subsection{把文件名里的编号提取出来}
+选择“正则改名”。查找填 \verb|^inv_(\d+)$|，替换填 \verb|订单-\1|，取消“区分大小写”。\file{INV_002.txt} 应显示为“订单-002.txt”，不符合规则的输入显示跳过。捕获到的编号保留前导零，文件扩展名沿用原值。
+
+在 \file{compile_match} 处检查编译后的模式和替换串，在 \file{rename_to} 处检查 \file{path.stem} 和新主名。副本和原位模式调用同一个函数，原位执行还会检查名称冲突。把替换串改成不存在的第八组后，批次应报告规则错误。捕获组改名的设计可参看 \href{https://github.com/ayoisaiah/f2}{F2} 的 \href{https://f2.freshman.tech/guide/tutorial}{正则改名教程}；此处使用 Python 的组引用语法。
+
+\subsection{定位一次跨行文本替换}
+用以下 Python 代码生成测试文件，两个字节的文件头标明 UTF-16 小端。选择“文本替换”，用正则 \verb|X(\d)| 替换为 \verb|单\1|。右侧选择该文件的替换明细，行号应依次为 1、2、3、3、4；第六处也会写入正式副本。
+\begin{lstlisting}[style=lab]
+from pathlib import Path
+import codecs
+text = "X1\r\nX2\rX3 X4\nX5\nX6"
+Path("notes.txt").write_bytes(codecs.BOM_UTF16_LE + text.encode("utf-16-le"))
+\end{lstlisting}
+\file{replace_text} 先识别 BOM，再解码。行号来自原文的换行边界，CRLF 只算一次。写出时按原字节序重新编码并补回 BOM。整个文件的匹配次数与屏幕展示数量分别计算。替换前先检查变更的交互参考 \href{https://github.com/chmln/sd}{sd}。
+
+\subsection{让图片适合指定尺寸}
+使用一张校正方向后为 800×400 像素的图片。“图片转换”选择 PNG，把最长边设为 200，预览应显示 200×100。再换成 80×40 的图片，输出仍为 80×40。
+\file{convert_image} 先做 EXIF 方向校正，再用等比缩略图生成目标像素，最后处理锐化、透明度与编码。验证时重新打开输出文件读取 \file{image.size}。接口与等比缩小规则见 \href{https://pillow.readthedocs.io/en/stable/reference/Image.html#PIL.Image.Image.thumbnail}{Pillow 的 thumbnail 文档}。
+\newpage
+\partlabel{源码实操 · 查重、质量报告与归档}
+\section{用同一批输入验证三份清单}
+\subsection{重复文件是如何确认的}
+在不同目录放两份内容相同的文件，再放一份长度相同、内容不同的文件及一份长度唯一的文件。在“文件整理”选择“查找重复”。结果应只有一组、两条路径；两条记录的 SHA-256 相同。
+\file{duplicate_report} 先取文件大小，只对同大小候选进行分块哈希。长度相同仍要比较完整摘要；扫描期间文件身份、大小或修改时间有变化，则记录失败。打开“重复文件.csv”可查看完整组号、路径、字节数和摘要。这个筛选顺序可对照 \href{https://github.com/qarmin/czkawka/blob/master/instructions/FAQ.md}{Czkawka 查重说明}。
+
+\subsection{先看字段质量，再决定如何清洗}
+在空目录建立下面的 CSV，在“表格处理”中选择“列质量报告”，保留业务列填“货号,备注”。预览应有两行，每行说明一个字段。
+\begin{lstlisting}
+区域,货号,备注
+东,002,
+东,001,NA
+西,001,NA
+\end{lstlisting}
+\begin{tabular*}{\linewidth}{@{\extracolsep{\fill}}lrrrrlr@{}}\toprule
+字段 & 总行数 & 非空数 & 空值数 & 不同非空值数 & 最常见值 & 次数\\\midrule
+货号 & 3 & 3 & 0 & 2 & 001 & 2\\
+备注 & 3 & 2 & 1 & 1 & NA & 2\\\bottomrule
+\end{tabular*}
+
+将筛选列设为“区域”、匹配值设为“东”，两列总行数应都变为 2。货号 002 和 001 各出现一次，报告按出现顺序取 002。\file{column_profile} 在行筛选之后计数，排除空值才求不同值数和众数。导出仍保留文本编号的前导零。可对照 \href{https://github.com/dathere/qsv/blob/master/src/cmd/stats.rs}{qsv 的列统计}理解每个指标。
+
+\subsection{把归档计划与 ZIP 对上}
+在“一键归档”中选好图片格式，先点预览。切换右上角筛选到“ZIP 成员”，可查看全部归档相对路径。组合任务会读取表格、检查工作簿行列限制并解码图片，预览期间输出目录无需存在。
+
+源码中的 \file{archive_batch} 把预览和执行都交给 \file{process_files}。若暂存目录为空，仅登记预期文件；执行时才创建副本并调用 \file{publish}。用 Python 打开输出 ZIP，排序后的 \file{namelist()} 应等于清单中的 \file{archive_members}。预览与执行之间如果输入有变化，执行结果以重新读取的文件为准。这种试运行模式可参看 \href{https://github.com/restic/restic/blob/master/doc/040_backup.rst}{restic 的备份文档}。
+\begin{lstlisting}
+python batch_tool.py inbox out --preview
+\end{lstlisting}
 \newpage
 \partlabel{Windows 交付}
 \section{在独立虚拟环境中打包}

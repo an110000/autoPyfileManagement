@@ -1,7 +1,6 @@
 """桌面批处理规则。预览和执行共用本模块；stage 为 None 表示只计算结果。"""
 
 import codecs
-import csv
 import hashlib
 import os
 import re
@@ -10,12 +9,12 @@ import string
 from collections import Counter, defaultdict
 from datetime import datetime
 from decimal import Decimal, InvalidOperation
+from itertools import islice
 from pathlib import Path
 
 import pandas as pd
-from PIL import Image
 
-from batch_tool import DOCUMENTS, EXCEL_INPUTS, IMAGES, SOURCE_COLUMNS, TABLES, convert_image, input_files, publish
+from batch_tool import DOCUMENTS, EXCEL_INPUTS, IMAGES, SOURCE_COLUMNS, TABLES, archive_batch, convert_image, input_files, publish
 from batch_tool import matches_sheet, read_tables, sheet_names, write_workbook
 
 
@@ -54,16 +53,27 @@ def compile_match(options):
     search = options["find"]
     if not search:
         raise ValueError("请填写查找内容。")
-    pattern = search if options["regex"] else re.escape(search)
-    return re.compile(pattern, 0 if options["case"] else re.IGNORECASE)
+    regex = options.get("regex") or options.get("rule") == "正则改名"
+    pattern = re.compile(search if regex else re.escape(search),
+                         0 if options.get("case", True) else re.IGNORECASE)
+    if regex:
+        # 在批次启动前检查替换串中的组号，即使没有任何文件匹配也能报告配置错误。
+        pattern.sub(options["replacement"], "")
+    return pattern
 
 
-def replace_text(path, options, pattern):
-    """返回替换后的字节、匹配次数和首个匹配示例，保留原编码、BOM 和换行。"""
+def replace_text(path, options, pattern, samples=None):
+    """返回新字节、次数和说明；可同时记录前五次替换的原始行号及前后文字。"""
     raw = path.read_bytes()
     encoding = options["encoding"]
     if encoding == "自动":
-        if raw.startswith(codecs.BOM_UTF8):
+        if raw.startswith((codecs.BOM_UTF32_LE, codecs.BOM_UTF32_BE)):
+            raise ValueError("暂不支持 UTF-32 文本")
+        if raw.startswith(codecs.BOM_UTF16_LE):
+            encoding = "utf-16-le"
+        elif raw.startswith(codecs.BOM_UTF16_BE):
+            encoding = "utf-16-be"
+        elif raw.startswith(codecs.BOM_UTF8):
             encoding = "utf-8-sig"
         else:
             try:
@@ -71,22 +81,39 @@ def replace_text(path, options, pattern):
                 encoding = "utf-8"
             except UnicodeDecodeError:
                 encoding = "gb18030"
+    # 单独保存 UTF-16 BOM；带 ^ 的正则应从真正的第一个字符开始匹配。
+    bom = b""
+    if encoding in ("utf-16-le", "utf-16-be"):
+        marker = codecs.BOM_UTF16_LE if encoding == "utf-16-le" else codecs.BOM_UTF16_BE
+        if raw.startswith(marker):
+            bom, raw = marker, raw[len(marker):]
     text = raw.decode(encoding)
     if "\0" in text:
         raise ValueError("内容包含空字符，请检查文本编码")
     first = pattern.search(text)
     if first is None:
-        return raw, 0, "未匹配"
+        return bom + raw, 0, "未匹配"
     replacement = options["replacement"]
     # 普通模式允许反斜线原样出现；正则模式支持 \1 等捕获组引用。
     replace = replacement if options["regex"] else lambda _match: replacement
     changed, count = pattern.subn(replace, text)
     example = first.expand(replacement) if options["regex"] else replacement
+    if samples is not None:
+        line = 1
+        breaks = re.finditer(r"\r\n|[\r\n]", text)
+        next_break = next(breaks, None)
+        for match in islice(pattern.finditer(text), 5):
+            # 计算原文中的行号，CRLF 算一次换行；多行匹配记其起始行。
+            while next_break is not None and next_break.end() <= match.start():
+                line += 1
+                next_break = next(breaks, None)
+            after = match.expand(replacement) if options["regex"] else replacement
+            samples.append([str(line), match.group()[:160], after[:160]])
     detail = f"{count} 处 · {first.group()[:40]!r} → {example[:40]!r} · {encoding}"
-    return changed.encode(encoding), count, detail
+    return bom + changed.encode(encoding), count, detail
 
 
-def rename_to(path, number, options):
+def rename_to(path, number, options, pattern=None):
     """在原扩展名前应用模板、查找替换或前后缀；返回经校验的新文件名。"""
     mode = options["rule"]
     if mode == "模板序号":
@@ -97,6 +124,9 @@ def rename_to(path, number, options):
                                       or (fmt and not (field == "n" and re.fullmatch(r"0?[1-9]d", fmt)))):
                 raise ValueError("模板仅支持 {name}、{date}、{n} 或 {n:03d} 等序号格式")
         stem = template.format(name=path.stem, n=number, date=datetime.fromtimestamp(path.stat().st_mtime).strftime("%Y%m%d"))
+    elif mode == "正则改名":
+        pattern = pattern or compile_match(options)
+        stem = pattern.sub(options["replacement"], path.stem)
     elif mode == "查找替换":
         if not options["find"]:
             raise ValueError("请输入文件名中要替换的文字")
@@ -157,7 +187,7 @@ def undo_renames(root, entries):
     return errors
 
 
-def rename_originals(root, output, options, selected, preview, progress):
+def rename_originals(root, output, options, selected, preview, progress, pattern=None):
     """先登记完整变更计划，再原位改名。若批次清单无法发布，按记录回滚。"""
     changes = []
 
@@ -175,7 +205,7 @@ def rename_originals(root, output, options, selected, preview, progress):
                 if path.name.startswith("~$") or (extensions and path.suffix.lower().lstrip(".") not in extensions):
                     item.update(status="skipped", reason="不符合文件筛选条件")
                 else:
-                    target = path.with_name(rename_to(path, seq, options))
+                    target = path.with_name(rename_to(path, seq, options, pattern))
                     seq += 1
                     if path.name == target.name:
                         item.update(status="skipped", reason="名称没有变化")
@@ -334,6 +364,19 @@ def convert_tables(tables, relative, destination):
     return products
 
 
+def column_profile(data, selected):
+    """按筛选后的数据统计各列。计频按文本比较，众数并列时保留先出现的值。"""
+    headings = ["列名", "总行数", "非空数", "空值数", "不同非空值数", "最常见值", "出现次数"]
+    rows = []
+    for name in selected or [c for c in data.columns if c not in SOURCE_COLUMNS]:
+        values = data[name].dropna().astype(str)
+        frequencies = Counter(v for v in values if v != "")
+        filled = sum(frequencies.values())
+        common, count = frequencies.most_common(1)[0] if frequencies else ("", 0)
+        rows.append([name, len(data), filled, len(data) - filled, len(frequencies), common, count])
+    return pd.DataFrame(rows, columns=headings)
+
+
 def transform_tables(frames, options, outputs):
     """全批次按名对齐后筛选、去重、分组或拆分，返回产物列表及输出行数。"""
     if not frames:
@@ -358,6 +401,8 @@ def transform_tables(frames, options, outputs):
         raise ValueError(f"找不到列 {', '.join(missing)}；可用列：{', '.join(data.columns)}")
     if field:
         data = filter_rows(data, field, options)
+    if action == "列质量报告":
+        data = column_profile(data, keep)
     if action == "按键去重":
         data = data.drop_duplicates(subset=keys, keep="first")
     if action == "分组汇总":
@@ -382,7 +427,7 @@ def transform_tables(frames, options, outputs):
 
     def emit(frame, name):
         """按输出列顺序写一个工作簿，同时给预览提供少量真实样例。"""
-        if keep and action != "分组汇总":
+        if keep and action not in {"分组汇总", "列质量报告"}:
             frame = frame.loc[:, list(dict.fromkeys(SOURCE_COLUMNS + keep))]
         rel, target = outputs.allocate(Path("表格") / name)
         if target:
@@ -398,17 +443,86 @@ def transform_tables(frames, options, outputs):
     return products, sum(p["rows"] for p in products)
 
 
+def duplicate_report(root, paths, outputs, options, progress):
+    """先按字节数分组；只读取同大小的候选文件，以完整 SHA-256 确认重复。"""
+    entries = []
+    sizes = defaultdict(list)
+    extensions = {v.lower().lstrip(".") for v in columns(options.get("extensions", ""))}
+    if progress:
+        progress("按大小筛选候选文件", None)
+    for path in paths:
+        item = {"source": path.relative_to(root).as_posix(), "status": "ok"}
+        entries.append(item)
+        if path.name.startswith("~$") or (extensions and path.suffix.lower().lstrip(".") not in extensions):
+            item.update(status="skipped", reason="不符合当前文件筛选条件")
+            if progress:
+                progress("筛选输入文件", item)
+            continue
+        try:
+            identity = fingerprint(path)
+        except OSError as error:
+            item.update(status="error", reason=str(error))
+            if progress:
+                progress("读取文件信息", item)
+            continue
+        sizes[identity[2]].append((path, identity, item))
+
+    rows = []
+    group_id = copies = 0
+    for size, candidates in sizes.items():
+        if len(candidates) == 1:
+            _, _, item = candidates[0]
+            item["detail"] = "大小唯一"
+            if progress:
+                progress("按大小排除唯一文件", item)
+            continue
+        matches = defaultdict(list)
+        for path, identity, item in candidates:
+            try:
+                checksum = digest(path)
+                if fingerprint(path) != identity:
+                    raise ValueError("文件在扫描期间发生变化，请重试")
+            except (OSError, ValueError) as error:
+                item.update(status="error", reason=str(error))
+            else:
+                matches[checksum].append(item)
+            if progress:
+                progress("校验候选文件内容", item)
+        for checksum, group in matches.items():
+            group[0]["detail"] = "首次出现"
+            if len(group) < 2:
+                continue
+            group_id += 1
+            copies += len(group) - 1
+            for item in group:
+                if item is not group[0]:
+                    item["detail"] = f"与 {group[0]['source']} 内容相同"
+                rows.append([group_id, item["source"], size, checksum])
+    counts = Counter(e["status"] for e in entries)
+    summary = {key: counts[key] for key in ("ok", "skipped", "error")}
+    frame = pd.DataFrame(rows, columns=["重复组", "相对路径", "大小（字节）", "SHA-256"])
+    name, dest = outputs.allocate(Path("重复文件.csv"))
+    if dest:
+        frame.to_csv(dest, index=False, encoding="utf-8-sig")
+    product = table_product(frame, name)
+    product["detail"] = f"{group_id} 组重复内容 · {copies} 个额外副本"
+    return {"files": entries, "products": [product], "summary": dict(summary, rows=len(rows)), "options": options}
+
+
 def perform(root, output, options, selected=None, preview=False, progress=None):
     """执行一个工具标签；返回 (批次目录或 None, 清单)，预览不会写磁盘。"""
     root, output = root.absolute().resolve(), output.absolute().resolve()
     if not root.is_dir() or root == output:
         raise ValueError("请选择存在的输入目录，并指定不同的输出目录")
     mode = options["mode"]
+    if mode == "一键归档":
+        return archive_batch(root, output, options["format"].lower(), options["sharpen"], progress, selected, preview)
+    regex_rename = mode == "批量重命名" and options.get("rule") == "正则改名"
+    pattern = compile_match(options) if regex_rename or mode == "文本替换" else None
     if mode == "批量重命名" and options.get("in_place"):
-        return rename_originals(root, output, options, selected, preview, progress)
+        return rename_originals(root, output, options, selected, preview, progress, pattern)
     if mode not in {"批量重命名", "文本替换", "图片转换", "文件整理", "表格处理"}:
         raise ValueError(f"未知工具：{mode}")
-    pattern = compile_match(options) if mode == "文本替换" else None
     allowed = {"图片转换": IMAGES, "文本替换": TEXT, "表格处理": TABLES}.get(mode)
     if mode == "表格处理":
         allowed = {"CSV 转 Excel": {".csv"}, "Excel 转 CSV": EXCEL_INPUTS, "工作表目录": EXCEL_INPUTS}.get(options["rule"], TABLES)
@@ -418,9 +532,10 @@ def perform(root, output, options, selected=None, preview=False, progress=None):
         """遍历选定文件，逐项形成记录；需要跨文件的数据处理放到遍历结束后。"""
         outputs = Outputs(stage)
         entries, frames, products = [], [], []
-        hashes = defaultdict(list)
         inventory = []
         paths = selected if selected is not None else input_files(root, output)
+        if mode == "文件整理" and options["rule"] == "查找重复":
+            return duplicate_report(root, paths, outputs, options, progress)
         seq = options.get("start", 1)
         extensions = {v.lower().lstrip(".") for v in columns(options.get("extensions", ""))}
         total_rows = 0
@@ -442,40 +557,38 @@ def perform(root, output, options, selected=None, preview=False, progress=None):
                 if path.name.startswith("~$") or (allowed is not None and ext not in allowed) or (extensions and ext.lstrip(".") not in extensions):
                     item.update(status="skipped", reason="不符合当前文件筛选条件")
                 elif mode == "批量重命名":
-                    name = rename_to(path, seq, options)
+                    name = rename_to(path, seq, options, pattern)
                     seq += 1
-                    item["output"], dest = destination(Path("重命名") / rel.with_name(name))
-                    if dest:
-                        shutil.copy2(path, dest)
+                    if regex_rename and name == path.name:
+                        item.update(status="skipped", reason="名称没有变化")
+                    else:
+                        item["output"], dest = destination(Path("重命名") / rel.with_name(name))
+                        if dest:
+                            shutil.copy2(path, dest)
                 elif mode == "文本替换":
-                    raw, count, detail = replace_text(path, options, pattern)
+                    samples = []
+                    raw, count, detail = replace_text(path, options, pattern, samples)
                     item["detail"] = detail
                     if count:
                         item["output"], dest = destination(Path("文本") / rel)
                         if dest:
                             dest.write_bytes(raw)
+                        item.update(sample_columns=["原文行号", "匹配文字", "替换结果"], sample_rows=samples)
                     else:
                         item.update(status="skipped", reason=detail)
                 elif mode == "图片转换":
                     new_ext = IMAGE_OUTPUTS[options["format"]]
-                    with Image.open(path) as image:
-                        if getattr(image, "n_frames", 1) != 1:
-                            raise ValueError("请选择单帧图片")
-                        item["detail"] = f"{image.format} · {image.width}×{image.height} → {options['format']}"
                     item["output"], dest = destination(Path("图片") / rel.with_suffix(new_ext))
-                    if dest:
-                        convert_image(path, dest, options["sharpen"], options["quality"])
+                    fmt, before, after = convert_image(path, dest or Path(item["output"]), options["sharpen"],
+                                                       options.get("quality", 90), options.get("max_edge", 0),
+                                                       preview=preview)
+                    item["detail"] = f"{fmt} {before[0]}×{before[1]} → {options['format']} {after[0]}×{after[1]}"
                 elif mode == "文件整理":
                     rule = options["rule"]
                     if rule == "文件清单":
                         record = inventory_row(path, rel)
                         inventory.append(record)
                         item["detail"] = f"{record[2]} · {record[4]} 字节 · {record[5]}"
-                    elif rule == "查找重复":
-                        key = (path.stat().st_size, digest(path))
-                        group = hashes[key]
-                        item["detail"] = f"与 {group[0]} 内容相同" if group else "首次出现"
-                        group.append(rel.as_posix())
                     else:
                         folder = category(path) if rule == "按类型" else datetime.fromtimestamp(path.stat().st_mtime).strftime("%Y-%m")
                         item["output"], dest = destination(Path("分类") / folder / path.name)
@@ -525,16 +638,6 @@ def perform(root, output, options, selected=None, preview=False, progress=None):
                 frame.to_csv(dest, index=False, encoding="utf-8-sig")
             products.append(table_product(frame, name))
             total_rows = len(frame)
-        if hashes:
-            groups = [paths for paths in hashes.values() if len(paths) > 1]
-            name, dest = outputs.allocate(Path("重复文件.csv"))
-            if dest:
-                with dest.open("w", encoding="utf-8-sig", newline="") as stream:
-                    writer = csv.writer(stream)
-                    writer.writerow(["重复组", "相对路径"])
-                    for i, group in enumerate(groups, 1):
-                        writer.writerows((i, path) for path in group)
-            products.append({"output": name, "detail": f"{len(groups)} 组重复内容"})
         count = Counter(entry["status"] for entry in entries)
         summary = {k: count[k] for k in ("ok", "skipped", "error")}
         return {"files": entries, "products": products, "summary": dict(summary, rows=total_rows), "options": options}

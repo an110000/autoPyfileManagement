@@ -14,7 +14,6 @@ from PyQt6.QtWidgets import (
     QSizePolicy, QStackedWidget, QTableView, QTableWidget, QTableWidgetItem, QVBoxLayout, QWidget, QTabBar, QScrollArea, QMessageBox,
 )
 
-from batch_tool import run
 from batch_ops import perform, undo_renames
 from rule_forms import MODES, RuleForm
 
@@ -50,13 +49,8 @@ class BatchWorker(QThread):
     def run(self):
         """在工作线程运行预览或正式批次，向主线程交付清单或错误原因。"""
         try:
-            if self.options["mode"] == "一键归档":
-                result, _ = run(self.root, self.output, self.options["format"].lower(), self.options["sharpen"],
-                                self.update_progress, self.selected)
-                report = json.loads((result / "处理清单.json").read_text(encoding="utf-8"))
-            else:
-                result, report = perform(self.root, self.output, self.options, self.selected,
-                                         self.preview, self.update_progress)
+            result, report = perform(self.root, self.output, self.options, self.selected,
+                                     self.preview, self.update_progress)
         except Exception as error:
             self.failed.emit(str(error))
         else:
@@ -72,10 +66,13 @@ class FileModel(QAbstractTableModel):
         self.records = []
         self.visible = []
 
-    def select_status(self, status):
-        """切换结果筛选并通知 Qt 视图重新读取数据。"""
+    def select_status(self, status, members=()):
+        """显示选定状态的源记录，或显示 ZIP 中每个成员的完整相对路径。"""
         self.beginResetModel()
-        self.visible = [e for e in self.records if e["status"] == status] if status else self.records
+        if status == "members":
+            self.visible = [dict(source=name, status="ok", label="成员", output="整理结果.zip") for name in members]
+        else:
+            self.visible = [e for e in self.records if e["status"] == status] if status else self.records
         self.endResetModel()
 
     def rowCount(self, parent=QModelIndex()):
@@ -303,7 +300,7 @@ class Workbench(QMainWindow):
         self.stack.addWidget(self.table)
         right.addWidget(self.stack, 1)
         self.sample_picker = QComboBox()
-        self.sample_picker.setAccessibleName("选择表格样本")
+        self.sample_picker.setAccessibleName("选择预览明细")
         self.sample_picker.currentIndexChanged.connect(self.show_sample)
         right.addWidget(self.sample_picker)
         self.sample = QTableWidget()
@@ -366,11 +363,15 @@ class Workbench(QMainWindow):
     def mode_changed(self, index):
         """切换独立规则表单，清空上一工具的结果，防止误读旧预览。"""
         self.forms.setCurrentIndex(index)
-        self.preview.setEnabled(MODES[index] != "一键归档")
         self.report = self.result_dir = None
         self.model.records = []
         self.model.select_status("")
         self.filter.setCurrentIndex(0)
+        member_index = self.filter.findData("members")
+        if MODES[index] == "一键归档" and member_index < 0:
+            self.filter.addItem("ZIP 成员", "members")
+        elif MODES[index] != "一键归档" and member_index >= 0:
+            self.filter.removeItem(member_index)
         self.filter.setEnabled(False)
         self.open_result.setEnabled(False)
         self.export_log.setEnabled(False)
@@ -436,7 +437,7 @@ class Workbench(QMainWindow):
 
     def filter_rows(self):
         """按下拉框选项更新明细；没有匹配时显示可读提示。"""
-        self.model.select_status(self.filter.currentData())
+        self.model.select_status(self.filter.currentData(), (self.report or {}).get("archive_members", ()))
         if self.model.visible:
             self.stack.setCurrentWidget(self.table)
         elif self.model.records:
@@ -473,7 +474,7 @@ class Workbench(QMainWindow):
         self.export_log.setEnabled(False)
         self.sample_picker.hide()
         self.sample.hide()
-        self.result_dir = None
+        self.report = self.result_dir = None
         self.open_result.setEnabled(False)
         self.filter.setEnabled(False)
         self.model.records = []
@@ -512,6 +513,9 @@ class Workbench(QMainWindow):
                 if item["status"] == "ok":
                     item["label"] = "可处理"
         self.sample_picker.clear()
+        for item in report["files"]:
+            if "sample_columns" in item:
+                self.sample_picker.addItem("替换明细 · " + item["source"], item)
         for product in report.get("products", []):
             detail = product.get("detail") or f"{product['rows']} 行"
             records.append(dict(source="输出预览" if result is None else "批次产物", status="ok",

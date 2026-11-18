@@ -208,11 +208,13 @@ def excel_cell(sheet, value):
 
 
 def write_workbook(frames, target):
-    """按首次出现的列名对齐数据块，写出单页 Excel 并返回数据行数。"""
+    """先核对合并后的行列数；预览传入 None 只返回行数，执行才建立工作簿。"""
     columns = list(dict.fromkeys(c for frame in frames for c in frame.columns)) if frames else SOURCE_COLUMNS
     count = sum(len(frame) for frame in frames)
     if count + 1 > EXCEL_ROWS or len(columns) > EXCEL_COLUMNS:
         raise ValueError("合并结果超出单张 Excel 工作表限制，请将输入分批处理")
+    if target is None:
+        return count
     book = Workbook(write_only=True)
     sheet = book.create_sheet("合并数据")
     sheet.freeze_panes = "D2" if columns[:3] == SOURCE_COLUMNS else "A2"
@@ -230,13 +232,22 @@ def write_workbook(frames, target):
     return count
 
 
-def convert_image(path, target, sharpen, quality=90):
-    """按目标后缀转换单帧图片；先校正方向，按需锐化，再处理透明度。"""
+def convert_image(path, target, sharpen, quality=90, max_edge=0, *, preview=False):
+    """校正方向、等比缩小，返回源格式及缩放前后尺寸。预览也解码像素以发现坏图。"""
+    if not isinstance(max_edge, int) or not 0 <= max_edge <= 65535:
+        raise ValueError("最长边须为 0 至 65535 之间的整数")
     with Image.open(path) as image:
         if getattr(image, "n_frames", 1) != 1:
             raise ValueError("多帧图片需先选定帧，已保留原文件")
-        oriented = ImageOps.exif_transpose(image)
-        rgba = oriented.convert("RGBA")
+        # 先展开调色板与透明度，否则 Pillow 会对索引色图片强制用最近邻缩放。
+        rgba = ImageOps.exif_transpose(image).convert("RGBA")
+        original = rgba.size
+        if max_edge:
+            # Pillow 9.0 用模块常量，后续版本将同一滤镜收进 Resampling。
+            rgba.thumbnail((max_edge, max_edge), getattr(Image, "Resampling", Image).LANCZOS)
+        geometry = image.format, original, rgba.size
+        if preview:
+            return geometry
         alpha = rgba.getchannel("A")
         rgb = rgba.convert("RGB")
         if sharpen:
@@ -251,6 +262,7 @@ def convert_image(path, target, sharpen, quality=90):
         else:
             rgb.putalpha(alpha)
             rgb.save(target, **({"quality": quality} if target.suffix == ".webp" else {}))
+        return geometry
 
 
 def process_files(root, output, stage, image_format, sharpen, progress=None, selected=None):
@@ -273,15 +285,20 @@ def process_files(root, output, stage, image_format, sharpen, progress=None, sel
                 stem = f"{number:04d}_{path.stem[:48]}"
                 if suffix in IMAGES:
                     ext = ".jpg" if image_format == "jpeg" else ".png"
-                    target = stage / "图片" / (stem + ext)
+                    relative = Path("图片") / (stem + ext)
                 else:
-                    target = stage / "文档" / (stem + suffix)
-                target.parent.mkdir(exist_ok=True)
+                    relative = Path("文档") / (stem + suffix)
+                target = stage / relative if stage is not None else None
+                if target is not None:
+                    target.parent.mkdir(exist_ok=True)
                 if suffix in IMAGES:
-                    convert_image(path, target, sharpen)
-                else:
+                    convert_image(path, target or relative, sharpen, preview=stage is None)
+                elif target is not None:
                     shutil.copy2(path, target)
-                entry["output"] = target.relative_to(stage).as_posix()
+                else:
+                    with path.open("rb") as stream:
+                        stream.read(1)
+                entry["output"] = relative.as_posix()
             else:
                 entry.update(status="skipped", reason="未配置此后缀")
         except Exception as error:
@@ -293,12 +310,18 @@ def process_files(root, output, stage, image_format, sharpen, progress=None, sel
             progress("处理文件", entry)
     if progress is not None:
         progress("写入汇总表", None)
-    rows = write_workbook(frames, stage / "合并数据.xlsx")
+    rows = write_workbook(frames, stage / "合并数据.xlsx" if stage is not None else None)
     counts = Counter(e["status"] for e in entries)
+    members = {"合并数据.xlsx", "处理清单.json"}
+    members.update(e["output"] for e in entries if e["status"] == "ok")
+    members = sorted(members)
     return {
         "summary": {**{s: counts[s] for s in ("ok", "error", "skipped")}, "rows": rows},
         "options": {"image_format": image_format, "sharpen": sharpen},
         "files": entries,
+        "archive_members": members,
+        "products": [{"output": "整理结果.zip", "detail": f"{len(members)} 个归档成员",
+                      "sample_columns": ["归档内路径（前五项）"], "sample_rows": [[m] for m in members[:5]]}],
     }
 
 
@@ -340,15 +363,24 @@ def publish(root, output, process, progress=None):
     return result, report
 
 
-def run(root, output, image_format, sharpen, progress=None, selected=None):
-    """命令行与桌面共用的一键归档入口，返回批次路径和数量汇总。"""
+def archive_batch(root, output, image_format, sharpen, progress=None, selected=None, preview=False):
+    """从同一套文件规则生成归档清单；仅执行模式会创建暂存目录并发布 ZIP。"""
     root, output = root.absolute().resolve(), output.absolute().resolve()
+    if not root.is_dir() or root == output:
+        raise ValueError("输入目录必须存在，并且不能与输出目录相同")
+    if image_format not in {"jpeg", "png"}:
+        raise ValueError("归档图片格式须为 JPEG 或 PNG")
 
     def archive(stage):
         """在发布器提供的临时位置写入表格、图片和文档副本。"""
         return process_files(root, output, stage, image_format, sharpen, progress, selected)
 
-    result, report = publish(root, output, archive, progress)
+    return (None, archive(None)) if preview else publish(root, output, archive, progress)
+
+
+def run(root, output, image_format, sharpen, progress=None, selected=None):
+    """保留命令行归档入口的返回约定：批次路径与数量汇总。"""
+    result, report = archive_batch(root, output, image_format, sharpen, progress, selected)
     return result, report["summary"]
 
 
@@ -359,13 +391,18 @@ def main():
     parser.add_argument("output", type=Path, help="输出根目录，每次运行创建新批次")
     parser.add_argument("--format", choices=["jpeg", "png"], default="jpeg", help="图片输出格式（默认 jpeg）")
     parser.add_argument("--sharpen", action="store_true", help="启用轻度锐化")
+    parser.add_argument("--preview", action="store_true", help="只列出计划中的 ZIP 成员和数量汇总")
     args = parser.parse_args()
     try:
-        result, summary = run(args.input, args.output, args.format, args.sharpen)
+        result, report = archive_batch(args.input, args.output, args.format, args.sharpen, preview=args.preview)
     except Exception as error:
         print(f"批次未完成：{error}", file=sys.stderr)
         return 2
-    print(f"结果目录：{result}")
+    if args.preview:
+        print("计划归档成员：", *report["archive_members"], sep="\n")
+    else:
+        print(f"结果目录：{result}")
+    summary = report["summary"]
     print("成功 {ok} 个，失败 {error} 个，跳过 {skipped} 个，合并 {rows} 行。".format(**summary))
     return 1 if summary["error"] else 0
 

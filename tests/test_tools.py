@@ -3,16 +3,18 @@
 import codecs
 import csv
 import json
+import re
 import shutil
 import tempfile
 import unittest
+from unittest.mock import patch
 import zipfile
 from pathlib import Path
 
 from openpyxl import Workbook, load_workbook
 from PIL import Image
 
-from batch_ops import perform, undo_renames
+from batch_ops import digest, perform, undo_renames
 
 
 class ToolTests(unittest.TestCase):
@@ -263,3 +265,109 @@ class ToolTests(unittest.TestCase):
         with self.assertRaisesRegex(ValueError, "筛选正则无效"):
             self.execute("表格处理", True, rule="按列合并", filter_column="备注",
                          filter_op="正则匹配", filter_value="[")
+
+    def test_regex_rename_copy_original_and_undo(self):
+        """两种执行方式共用捕获组和扩展名规则；无匹配时跳过，原位变更能够撤销。"""
+        old = self.root / "INV_002.TXT"
+        old.write_text("original")
+        (self.root / "notes.txt").touch()
+        cfg = dict(rule="正则改名", find=r"^inv_(\d+)$", replacement=r"订单-\1", case=False)
+        _, preview = self.execute("批量重命名", True, **cfg)
+        self.assertFalse(self.out.exists())
+        base, report = self.execute("批量重命名", **cfg)
+        self.assertEqual(report, preview)
+        self.assertEqual(report["summary"]["skipped"], 1)
+        self.assertEqual((base / "重命名/订单-002.TXT").read_text(), "original")
+        _, changed = self.execute("批量重命名", **cfg, in_place=True)
+        self.assertFalse(old.exists())
+        self.assertEqual(undo_renames(self.root, changed["files"]), [])
+        self.assertEqual(old.read_text(), "original")
+        with self.assertRaisesRegex(re.error, "group"):
+            self.execute("批量重命名", True, **dict(cfg, replacement=r"\8"))
+
+    def test_text_sample_numbers_encoding_and_limits(self):
+        """保留 UTF-16 两种字节序与 BOM；只展示前五处，写入仍覆盖全部匹配。"""
+        cfg = dict(find=r"X(\d)", replacement=r"单\1", case=True, regex=True, encoding="自动")
+        content = "X1\r\nX2\rX3 X4\nX5\nX6"
+        for enc, bom in [("utf-16-le", codecs.BOM_UTF16_LE), ("utf-16-be", codecs.BOM_UTF16_BE)]:
+            path = self.root / (enc + ".txt")
+            path.write_bytes(bom + content.encode(enc))
+        _, preview = self.execute("文本替换", True, **cfg)
+        base, actual = self.execute("文本替换", **cfg)
+        self.assertEqual(preview, actual)
+        for entry in actual["files"]:
+            encoding = Path(entry["source"]).stem
+            samples = entry["sample_rows"]
+            self.assertEqual([row[0] for row in samples], ["1", "2", "3", "3", "4"])
+            self.assertEqual(samples[-1][1:], ["X5", "单5"])
+            out = (base / entry["output"]).read_bytes()
+            self.assertEqual(out[:2], (self.root / entry["source"]).read_bytes()[:2])
+            self.assertEqual(out[2:].decode(encoding), content.replace("X", "单"))
+
+    def test_oriented_image_dimensions_and_broken_preview(self):
+        """旋转后再缩小；小图保留原尺寸，截断图片在预览时也会报告失败。"""
+        picture = Image.new("RGB", (80, 40), "red")
+        exif = picture.getexif()
+        exif[274] = 6
+        picture.save(self.root / "rotate.jpg", exif=exif)
+        Image.new("RGBA", (4, 5), (10, 20, 30, 0)).save(self.root / "small.png")
+        broken = self.root / "truncated.bmp"
+        picture.save(broken)
+        broken.write_bytes(broken.read_bytes()[:100])
+        opts = dict(format="PNG", sharpen=True, max_edge=20)
+        _, preview = self.execute("图片转换", True, **opts)
+        self.assertFalse(self.out.exists())
+        result, report = self.execute("图片转换", **opts)
+        self.assertEqual(preview["files"], report["files"])
+        self.assertEqual(report["summary"]["error"], 1)
+        with Image.open(result / "图片/rotate.png") as img:
+            self.assertEqual(img.size, (10, 20))
+        with Image.open(result / "图片/small.png") as img:
+            self.assertEqual(img.size, (4, 5))
+            self.assertEqual(img.getpixel((0, 0))[3], 0)
+
+    def test_size_first_duplicate_report(self):
+        """只对同大小候选求完整散列，排除同尺寸不同内容，并保留零字节重复项。"""
+        values = {"a": b"x", "b": b"x", "c": b"y", "d": b"unique", "e": b"", "f": b""}
+        for name, raw in values.items():
+            (self.root / name).write_bytes(raw)
+        with patch("batch_ops.digest", wraps=digest) as hashed:
+            _, preview = self.execute("文件整理", True, rule="查找重复")
+        self.assertEqual({call.args[0].name for call in hashed.call_args_list}, {"a","b","c","e","f"})
+        result, report = self.execute("文件整理", rule="查找重复")
+        self.assertEqual(preview, report)
+        with (result / "重复文件.csv").open(encoding="utf-8-sig", newline="") as f:
+            rows = list(csv.DictReader(f))
+        self.assertEqual([r["相对路径"] for r in rows], ["a", "b", "e", "f"])
+        self.assertEqual(report["summary"]["rows"], 4)
+
+    def test_filtered_column_profile(self):
+        """在行筛选之后统计，编号、空值、并列众数及零行输入都可对照工作簿。"""
+        (self.root / "data.csv").write_text("区域,编号,备注\n东,002,\n东,001,NA\n西,001,NA", encoding="utf-8")
+        cfg = dict(rule="列质量报告", columns="编号,备注", filter_column="区域", filter_value="东")
+        _, preview = self.execute("表格处理", True, **cfg)
+        result, actual = self.execute("表格处理", **cfg)
+        self.assertEqual(preview, actual)
+        rows = self.workbook_rows(result, actual["products"][0]["output"])
+        self.assertEqual(rows[1:], [("编号",2,2,0,2,"002",1), ("备注",2,1,1,1,"NA",1)])
+        _, empty = self.execute("表格处理", True, **dict(cfg, filter_value="北"))
+        self.assertEqual(empty["products"][0]["sample_rows"][0], ["编号","0","0","0","0","","0"])
+
+    def test_archive_plan_matches_published_zip(self):
+        """组合任务预览不写盘，多个同名图片有各自去向；损坏项不会进入 ZIP。"""
+        self.orders()
+        (self.root / "note.txt").write_text("hello")
+        (self.root / "bad.png").write_bytes(b"broken")
+        for folder in ["东", "西"]:
+            dest = self.root / folder
+            dest.mkdir()
+            Image.new("RGB", (3, 2)).save(dest / "img.png")
+        opts = dict(format="PNG", sharpen=False)
+        _, plan = self.execute("一键归档", True, **opts)
+        self.assertFalse(self.out.exists())
+        finished, actual = self.execute("一键归档", **opts)
+        self.assertEqual(plan, actual)
+        self.assertEqual(actual["summary"], dict(ok=5, error=1, skipped=0, rows=3))
+        with zipfile.ZipFile(finished / "整理结果.zip") as archive:
+            self.assertEqual(sorted(archive.namelist()), plan["archive_members"])
+            self.assertIsNone(archive.testzip())

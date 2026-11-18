@@ -11,6 +11,7 @@ os.environ.setdefault("QT_QPA_PLATFORM", "offscreen")
 from PyQt6.QtTest import QTest
 from PyQt6.QtWidgets import QApplication
 from openpyxl import Workbook
+from PIL import Image
 
 from batch_ui import Workbench
 from rule_forms import MODES
@@ -104,5 +105,65 @@ class DesktopTests(unittest.TestCase):
                 window.preview.click()
                 self.finish_task(window)
                 self.assertEqual(window.report["summary"]["rows"], 0)
+            finally:
+                window.close()
+
+    def test_six_tool_previews_and_publication(self):
+        """逐个从标签设置新功能，验证按钮、后台线程、结果控件和正式产物相互对应。"""
+        with tempfile.TemporaryDirectory(dir=Path.cwd()) as temp:
+            source = Path(temp) / "收件"
+            source.mkdir()
+            (source / "id12.txt").write_bytes(b"one\ncode12\n")
+            (source / "copy.txt").write_bytes(b"one\ncode12\n")
+            (source / "orders.csv").write_text("sku,qty\n001,2\n001,", encoding="utf-8-sig")
+            Image.new("RGB", (60, 30)).save(source / "photo.png")
+            window = Workbench()
+            window.show()
+            try:
+                window.source.setText(str(source))
+                for index, mode in enumerate(MODES):
+                    with self.subTest(mode=mode):
+                        window.tabs.setCurrentIndex(index)
+                        target = Path(temp) / mode
+                        window.output.setText(str(target))
+                        fields = window.forms.currentWidget().fields
+                        if mode == "批量重命名":
+                            fields["rule"].setCurrentText("正则改名")
+                            fields["find"].setText(r"id(\d+)")
+                            fields["replacement"].setText(r"订单\1")
+                        elif mode == "文本替换":
+                            fields["find"].setText("code12")
+                            fields["replacement"].setText("已核对")
+                        elif mode == "图片转换":
+                            fields["max_edge"].setValue(12)
+                        elif mode == "文件整理":
+                            fields["rule"].setCurrentText("查找重复")
+                        elif mode == "表格处理":
+                            fields["rule"].setCurrentText("列质量报告")
+                        self.assertTrue(window.preview.isEnabled())
+                        window.preview.click()
+                        self.finish_task(window)
+                        preview = window.report
+                        self.assertFalse(target.exists())
+                        if mode == "文本替换":
+                            self.assertEqual(window.sample.item(0, 0).text(), "2")
+                        elif mode == "一键归档":
+                            self.assertIn("合并数据.xlsx", preview["archive_members"])
+                            window.filter.setCurrentIndex(window.filter.findData("members"))
+                            self.assertEqual([r["source"] for r in window.model.visible], preview["archive_members"])
+                        window.start.click()
+                        self.finish_task(window)
+                        self.assertEqual(window.report, preview)
+                        self.assertEqual(window.report["summary"]["error"], 0)
+                        self.assertTrue((window.result_dir / "整理结果.zip").is_file())
+                        if mode == "批量重命名":
+                            self.assertTrue((window.result_dir / "重命名/订单12.txt").is_file())
+                        elif mode == "图片转换":
+                            with Image.open(window.result_dir / "图片/photo.jpg") as image:
+                                self.assertEqual(image.size, (12, 6))
+                        elif mode == "文件整理":
+                            self.assertEqual(window.sample.rowCount(), 2)
+                        elif mode == "表格处理":
+                            self.assertEqual(window.sample.horizontalHeaderItem(3).text(), "空值数")
             finally:
                 window.close()
