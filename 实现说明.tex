@@ -37,18 +37,18 @@
 \partlabel{使用与交付}
 {\Huge\bfseries\color{ink}归档台 · 文件批处理工作站\par}
 \vspace{4pt}
-从一个空目录开始，亲手写出一套可以预览、执行和生成 ZIP 的六标签 PyQt6 工作台。全程使用同一批样例：你能在窗口里点出的每个结果，都应先能在终端算出。
+从一个空目录开始，亲手写出一套可以预览、执行和生成 ZIP 的六标签 CustomTkinter 工作台。全程使用同一批样例：你能在窗口里点出的每个结果，都应先能在终端算出。
 
 \subsection{新建独立练习目录}
-以下用 Windows、64 位 Python 3.9 和 PowerShell。选择尚未存在的目录名，在项目目录之外执行。代码文件一律保存为 UTF-8；练习阶段的命令均在 \file{archive-practice} 中运行。一次安装后，练习与 Qt 的本地帮助均可离线使用。
+以下用 Windows、64 位 Python 3.9 和 PowerShell。选择尚未存在的目录名，在项目目录之外执行。代码文件一律保存为 UTF-8；练习阶段的命令均在 \file{archive-practice} 中运行。一次安装后，练习和 Python 的本地帮助均可离线使用。
 \begin{lstlisting}
 mkdir archive-practice
 cd archive-practice
 python -m venv .venv
 $env:Path = "$PWD\.venv\Scripts;$env:Path"
 python -m pip install pandas==2.3.3 numpy==1.26.4 openpyxl==3.1.5
-python -m pip install Pillow==11.3.0 PyQt6==6.7.1 PyQt6-Qt6==6.7.3
-python -c "import pandas, openpyxl, PIL, PyQt6.QtWidgets; print('OK')"
+python -m pip install Pillow==11.3.0 customtkinter==5.2.2
+python -c "import pandas, openpyxl, PIL, customtkinter; print('OK')"
 \end{lstlisting}
 看到 \file{OK} 后制作第 2 页样例。设置 \file{Path} 只对当前 PowerShell 生效。重新打开终端后，先回到练习目录并重做设置 \file{Path} 的一行，或用 \verb|.\.venv\Scripts\python.exe| 代替后文的 \file{python}。
 
@@ -63,7 +63,7 @@ python -c "import pandas, openpyxl, PIL, PyQt6.QtWidgets; print('OK')"
 \end{tabularx}
 
 \subsection{如何对照正式项目}
-教程中标“新建／追加”的代码可拼成独立的练习程序，入口是 \file{ui_lab.py}。忘记某个方法的职责，可翻到第 \pageref{lab:functions} 页查它的输入、输出和调用时机。对照交付版时，回到项目根目录：\file{main.py} 是正式入口，\file{batch_ops.py} 管理规则，\file{batch_ui.py} 管理窗口。
+教程中标“新建／追加”的代码可拼成独立的练习程序，入口是 \file{ui_lab.py}。忘记某个方法的职责，可翻到第 \pageref{lab:functions} 页查它的输入、输出和调用时机。对照交付版时，回到项目根目录：\file{main.py} 是正式入口，\file{batch_ops.py} 管理规则，\file{ctk_ui.py} 管理窗口。
 
 
 \newpage
@@ -545,346 +545,93 @@ with TemporaryDirectory(dir=".") as work:
 如果压缩包内出现自己，检查列文件的时机。若执行后工作簿正确、预览时却出现新目录，把建目录的代码移至 \verb|if not execute| 分支之后。
 \newpage
 \partlabel{独立复现 · 界面设计}
-\section{把操作顺序画成窗口布局}\phantomsection\label{lab:ui}
-先在纸上画一个矩形，依次回答四个问题：要处理什么、从哪里读、按什么规则变更、用什么证据看结果。把同一批次共享的目录放在标签外，避免从“图片”切到“表格”后又要选一次目录。左栏放会改变结果的控件，右栏放清单或数据样本；底部留出状态行。
-\begin{tabularx}{\linewidth}{@{}p{.22\linewidth}p{.31\linewidth}Y@{}}\toprule
-\textbf{用户动作} & \textbf{Qt 控件和布局} & \textbf{写代码时检查什么}\\\midrule
-选择任务 & 顶部 \file{QTabBar}；左栏 \file{QStackedWidget} & 两者的索引一一对应。切走再切回，参数仍在各自的表单里。\\
-填写规则 & \file{QFormLayout} 排列标签与输入框 & 有限选项使用下拉框；查找文字和列名使用文本框。只读取当前表单。\\
-预览或执行 & 两个按钮，共用一个入口 & 按钮提供不同的 \file{execute} 布尔值。默认目录相同也不能误写。\\
-核对结果 & 右栏 \file{QTableWidget}，下方状态行 & 清单用来源、状态、详情三列；表格预览直接显示列名与实际值。\\\bottomrule
-\end{tabularx}
+\section{用 CustomTkinter 接入批处理引擎}\phantomsection\label{lab:ui}
+安装 \file{requirements.txt} 后运行 \file{python main.py} 即可打开成品。先在练习目录做下面的小窗口，拖动分隔条确认空间分配，再接上数据和按钮。
 
-\subsection{先让一个窗口出现}
-将这段独立小程序存为 \file{hello_qt.py}。在 PowerShell 运行 \file{python hello_qt.py}，点“预览”后应看到“按钮已连接”。关闭窗口后再写下一页。这个实验只能证明事件循环和槽连接正确，下一步才接文件系统。
-% lab-file: hello_qt.py
+\subsection{先搭可拖动的空窗口}
 \begin{lstlisting}[style=lab]
-import sys
-from PyQt6.QtWidgets import QApplication, QWidget, QVBoxLayout, QLabel, QPushButton
+import tkinter as tk
+import customtkinter as ctk
+from tkinter import ttk
+MODES = ("批量重命名", "文本替换", "图片转换",
+         "文件整理", "表格处理", "一键归档")
 
-app = QApplication(sys.argv)
-window = QWidget()
-window.setWindowTitle("Qt 实验")
-layout = QVBoxLayout(window)
-status = QLabel("等待操作")
-button = QPushButton("预览")
-layout.addWidget(status)
-layout.addWidget(button)
-button.clicked.connect(lambda: status.setText("按钮已连接"))
-window.show()
-sys.exit(app.exec())
+app = ctk.CTk()
+app.geometry("1100x700")
+tabs = ctk.CTkSegmentedButton(app, values=list(MODES))
+tabs.pack(fill="x")
+tabs.set(MODES[0])
+body = tk.PanedWindow(app, orient="horizontal", sashwidth=7)
+body.pack(fill="both", expand=True)
+left = ctk.CTkFrame(body)
+views = tk.PanedWindow(body, orient="vertical", sashwidth=7)
+body.add(left, width=300, minsize=240, stretch="never")
+body.add(views, stretch="always")
+for title in ("文件明细", "数据样本"):
+    tree = ttk.Treeview(views, columns=("value",), show="headings")
+    tree.heading("value", text=title)
+    views.add(tree, minsize=80, stretch="always")
+app.mainloop()
 \end{lstlisting}
-\textbf{设计参数}\quad 用布局控制间距、伸缩和窄窗口的空间分配。练习窗口的左右栏比例为 2:3；结果表用更宽的一栏容纳路径。主操作按钮用深绿色与粗体文字，次操作保留标准按钮。用 \file{setObjectName("primary")} 配合 \verb|QPushButton#primary| 将样式限定在执行按钮上。\par
-\textbf{定位故障}\quad 窗口一闪而过，检查是否进入 \file{app.exec()}。点按钮立刻在启动时执行，检查传给 \file{connect} 的是否为函数本身；加圆括号会先调用它。
+在左栏建立 \file{Canvas}，先画虚化底图、再画标题文字。将规则放入 \file{CTkScrollableFrame}，把执行按钮放在滚动区域下方。右侧有样本才加入第二张表；切换到无样本任务时，移除这块面板，让明细使用整栏高度。
+
+\subsection{接上规则、线程和表格}
+\begin{enumerate}
+\item 打开 \file{workbench_view.py}。照 \file{build_fields} 的接口写四种控件。文本和数字输入绑定 \file{StringVar}，勾选框绑定 \file{BooleanVar}。规则变化时用 \file{visible_fields} 控制字段显隐。点按钮时用 \file{task_options} 生成参数，把可见的数字字段转成整数。
+\item 打开 \file{ctk_ui.py}。顺着 \file{start_batch}、\file{run_batch}、\file{poll} 找到一次点击的路径。主线程先拍下参数，工作线程调用 \file{perform} 后将清单放入 \file{queue.Queue}。主线程用 \file{after} 取消息，再按 \file{report_view} 的结果填入两张表。
+\item 用第 2 页的样例启动工作台，选“表格处理 → 分组汇总”，填 \file{sku} 和 \file{qty}。应显示 0012 合计 6。拖动预览上沿，确认样本能增高；切换标签再回来，确认输入保留，旧批次结果已清空。
+\end{enumerate}
+
 \newpage
-\partlabel{独立复现 · 窗口骨架}
-\section{搭建六个标签及共享输入区}\phantomsection\label{lab:layout}
-\stepfile{新建}{view_lab.py}
-每个工具占一条配置记录：内部名称供引擎分派，中文名称显示在标签上，第三项决定参数控件。\file{tuple} 代表可选值，字符串代表文本框的默认值。先看“表格处理”：选中 \file{sum} 后，分组列和数值列决定传给 \file{products} 的两个列名。
-% lab-file: view_lab.py
+\partlabel{独立复现 · 按钮和后台线程}
+\section{先让一个预览按钮返回三组数据}
+把下面存为 \file{ui_lab.py}，与练习的 \file{engine_lab.py} 放在同一目录。暂用固定样例和输出路径，先验证后台线程、消息队列和结果表能接通。
 \begin{lstlisting}[style=lab]
-from PyQt6 import QtWidgets as W
-
-TOOLS = [
-    ("rename", "批量重命名", [("prefix","前缀","R")]),
-    ("text", "文本替换", [("find","查找","note"), ("new","替换为","memo"),
-                         ("syntax","匹配方式",("literal","regex"))]),
-    ("image", "图片转换", [("format","图片格式",("JPEG","PNG","WEBP"))]),
-    ("organize", "文件整理", [("by","分类方式",("type","month","duplicate"))]),
-    ("sheet", "表格处理", [
-        ("action","规则",("merge","unique","sum","split","to_csv","to_xlsx")),
-        ("key","分组或去重列","sku"), ("amount","数值列","qty")]),
-    ("archive", "一键归档", [])
-]
-
-class LabView(W.QWidget):
-    def __init__(self):
-        super().__init__()
-        self.resize(960, 540)
-        self.setWindowTitle("归档台 · 练习工作台")
-        outer = W.QVBoxLayout(self)
-        outer.setContentsMargins(18, 18, 18, 18)
-        outer.setSpacing(12)
-        outer.addWidget(W.QLabel("文件整理工作台"))
-        self.tabs = W.QTabBar()
-        outer.addWidget(self.tabs)
-        columns = W.QHBoxLayout()
-        outer.addLayout(columns, 1)
-        self.left = W.QGroupBox("输入与规则")
-        columns.addWidget(self.left, 2)
-        left = W.QVBoxLayout(self.left)
-        self.src = self.path_row(left, "输入目录", "inbox")
-        self.dst = self.path_row(left, "输出目录", "lab-results")
-        self.stack = W.QStackedWidget()
-        left.addWidget(self.stack)
-        self.inputs = []
-        for mode, title, fields in TOOLS:
-            self.tabs.addTab(title)
-            self.add_page(fields)
-        self.tabs.currentChanged.connect(self.stack.setCurrentIndex)
-        self.stack.setCurrentIndex(0)
-\end{lstlisting}
-\textbf{继续方式}\quad 这一页的类还未写完。下一页开头仍是 \file{__init__} 的方法体（八个空格）；遇到 \file{def path_row} 再退到四个空格。界面从左到右的比例来自 \file{addWidget} 的伸缩因子，实际像素会随着窗口变化。
-\newpage
-\partlabel{独立复现 · 窗口控件}
-\section{写出规则控件、按钮和结果表}\phantomsection\label{lab:controls}
-\stepfile{追加}{view_lab.py}
-% lab-file: view_lab.py
-\begin{lstlisting}[style=lab]
-        left.addStretch()
-        actions = W.QHBoxLayout()
-        self.preview = W.QPushButton("预览")
-        self.apply = W.QPushButton("执行")
-        self.apply.setObjectName("primary")
-        self.setStyleSheet("QPushButton#primary { background:#165d51;"
-                           "color:white; padding:6px; font-weight:bold; }")
-        actions.addWidget(self.preview)
-        actions.addWidget(self.apply)
-        left.addLayout(actions)
-        right = W.QVBoxLayout()
-        columns.addLayout(right, 3)
-        self.pick = W.QComboBox()
-        right.addWidget(self.pick)
-        self.table = W.QTableWidget()
-        self.table.setEditTriggers(W.QAbstractItemView.EditTrigger.NoEditTriggers)
-        right.addWidget(self.table)
-        self.status = W.QLabel("就绪")
-        self.status.setWordWrap(True)
-        outer.addWidget(self.status)
-
-    def path_row(self, layout, title, initial):
-        row = W.QHBoxLayout()
-        edit = W.QLineEdit(initial)
-        button = W.QPushButton("浏览")
-        def choose():
-            folder = W.QFileDialog.getExistingDirectory(self, title, edit.text())
-            if folder:
-                edit.setText(folder)
-        button.clicked.connect(choose)
-        layout.addWidget(W.QLabel(title))
-        row.addWidget(edit, 1)
-        row.addWidget(button)
-        layout.addLayout(row)
-        return edit
-
-    def add_page(self, fields):
-        page = W.QWidget()
-        form = W.QFormLayout(page)
-        editors = {}
-        for key, title, initial in fields:
-            if isinstance(initial, tuple):
-                box = W.QComboBox()
-                box.addItems(initial)
-            else:
-                box = W.QLineEdit(initial)
-            form.addRow(title, box)
-            editors[key] = box
-        self.inputs.append(editors)
-        self.stack.addWidget(page)
-\end{lstlisting}
-\textbf{检查布局}\quad 在练习目录执行以下命令。切换“文本替换”和“图片转换”，左侧字段应变化；取消浏览应保留原路径。下一步连接两个操作按钮。
-\begin{lstlisting}[style=lab]
-python -c "from view_lab import *; a=W.QApplication([]); w=LabView(); w.show(); a.exec()"
-\end{lstlisting}
-\newpage
-\partlabel{独立复现 · 信号与线程}
-\section{在后台读取文件，把结果送回主线程}\phantomsection\label{lab:thread}
-\stepfile{新建}{ui_lab.py}
-工作线程接收普通字符串、字典和布尔值；Qt 界面控件始终由主线程管理。先把引擎的调用单独放进 \file{Task.run}，再把两个按钮接到同一入口。信号参数是双方的约定：\file{tick} 带进度，\file{ready} 带清单，\file{failed} 带可读错误。
-% lab-file: ui_lab.py
-\begin{lstlisting}[style=lab]
-import sys
-from PyQt6.QtCore import QThread, pyqtSignal
+from queue import Empty, Queue
+from threading import Thread
+from tkinter import ttk
+import customtkinter as ctk
 from engine_lab import run
-from view_lab import LabView, TOOLS, W
 
-class Task(QThread):
-    tick = pyqtSignal(int, str)
-    ready = pyqtSignal(dict)
-    failed = pyqtSignal(str)
+events = Queue()
+app = ctk.CTk()
+table = ttk.Treeview(app, columns=("sku", "count", "total"), show="headings")
+for col in table["columns"]:
+    table.heading(col, text=col)
+table.pack(fill="both", expand=True)
+status = ctk.CTkLabel(app, text="")
+status.pack()
 
-    def __init__(self, args, parent):
-        super().__init__(parent)
-        self.args = args
+def job():
+    try:
+        opts = {"action": "sum", "key": "sku", "amount": "qty"}
+        report = run("inbox", "out", "sheet", opts)
+        events.put((report["products"][0]["sample"], "预览完成"))
+    except Exception as error:
+        events.put(([], str(error)))
 
-    def run(self):
-        try:
-            report = run(*self.args, notify=self.tick.emit)
-        except Exception as error:
-            self.failed.emit(str(error))
-        else:
-            self.ready.emit(report)
+def poll():
+    try:
+        rows, message = events.get_nowait()
+    except Empty:
+        app.after(40, poll)
+        return
+    table.delete(*table.get_children())
+    for row in rows:
+        table.insert("", "end", values=row)
+    status.configure(text=message)
+    preview.configure(state="normal")
+
+def launch():
+    preview.configure(state="disabled")
+    Thread(target=job).start()
+    app.after(40, poll)
+
+preview = ctk.CTkButton(app, text="预览结果", command=launch)
+preview.pack()
+app.mainloop()
 \end{lstlisting}
-
-\subsection{脱离窗口验证线程}
-先运行下面的实验。此时 \file{ui_lab.py} 写到 \file{Task} 类结束就够了。脚本用 Qt 核心事件循环接收信号，不需要先画任何按钮。命令 \file{python check_thread.py} 应打印 \file{6 files} 并退出。
-\stepfile{新建}{check_thread.py}
-% lab-file: check_thread.py
-\begin{lstlisting}[style=lab]
-from PyQt6.QtCore import QCoreApplication
-from ui_lab import Task
-
-app = QCoreApplication([])
-args = ("inbox", "lab-results", "archive", {}, False)
-task = Task(args, app)
-task.ready.connect(lambda report: print(len(report["files"]), "files"))
-task.failed.connect(print)
-task.finished.connect(app.quit)
-task.start()
-app.exec()
-task.wait()
-\end{lstlisting}
-将 \file{inbox} 临时改写为 \file{no-such-folder} 再运行：这次应走失败信号，仍正常退出。把路径改回来。该实验能在 UI 写好之前区分引擎异常和信号没有接上。
-
-\newpage
-\partlabel{独立复现 · 按钮接线}
-\section{给预览和执行共用一个槽}
-\stepfile{追加}{ui_lab.py}
-从行首定义 \file{Window}，继承已完成的布局。不在类外重新建立按钮。用同一份 \file{opts} 把点击时的输入冻结下来；工作线程运行期间，用户仍可滚动结果表，左栏和标签暂停接收修改。
-% lab-file: ui_lab.py
-\begin{lstlisting}[style=lab]
-
-class Window(LabView):
-    def __init__(self):
-        super().__init__()
-        self.job = None
-        self.report = None
-        self.close_later = False
-        self.tabs.currentChanged.connect(self.reset_result)
-        self.pick.currentIndexChanged.connect(self.display)
-        self.preview.clicked.connect(lambda: self.launch(False))
-        self.apply.clicked.connect(lambda: self.launch(True))
-
-    def reset_result(self):
-        self.report = None
-        self.pick.clear()
-        self.table.setRowCount(0)
-        self.table.setColumnCount(0)
-        self.status.setText("就绪")
-
-    def launch(self, execute):
-        if self.job is not None:
-            return
-        i = self.tabs.currentIndex()
-        opts = {}
-        for key, editor in self.inputs[i].items():
-            opts[key] = (editor.currentText() if isinstance(editor, W.QComboBox)
-                         else editor.text())
-        args = self.src.text(), self.dst.text(), TOOLS[i][0], opts, execute
-        if not args[0].strip() or not args[1].strip():
-            self.status.setText("请填写输入、输出目录")
-            return
-        self.reset_result()
-        self.job = Task(args, self)
-        self.left.setEnabled(False)
-        self.tabs.setEnabled(False)
-        self.status.setText("正在处理")
-        self.job.tick.connect(self.progress)
-        self.job.ready.connect(self.completed)
-        self.job.failed.connect(self.status.setText)
-        self.job.finished.connect(self.finished)
-        self.job.start()
-\end{lstlisting}
-\textbf{常见故障}\quad 若点击后界面冻结，检查最后一行。直接写 \file{self.job.run()} 会在按钮事件所在的主线程执行；\file{start()} 才会启动工作线程。把线程保存在 \file{self.job} 能让它活到结束信号到达。
-\par\textbf{沿一次点击走一遍}\quad 输入 \file{sku} 和 \file{qty}，点击“预览”。第一站 \file{launch(False)} 读出 \file{sheet} 和两列名；第二站 \file{Task.run} 在工作线程调用引擎；第三站 \file{completed} 在主线程接收三行数据。最后始终经过 \file{finished}，错误路径也要重新启用按钮。下一页写这三个槽的界面反馈。
-\newpage
-\partlabel{独立复现 · 结果与反馈}
-\section{把清单显示出来，收好线程生命周期}\phantomsection\label{lab:signals}
-\stepfile{追加}{ui_lab.py}
-% lab-file: ui_lab.py
-\begin{lstlisting}[style=lab]
-    def progress(self, count, source):
-        self.status.setText(f"{count} · {source}")
-
-    def completed(self, report):
-        self.report = report
-        self.pick.clear()
-        self.pick.addItem("文件明细")
-        for p in report["products"]:
-            self.pick.addItem(p["name"])
-        self.pick.setCurrentIndex(1 if report["products"] else 0)
-        self.display(self.pick.currentIndex())
-        self.status.setText(report.get("directory", "预览完成，尚未写入"))
-
-    def display(self, index):
-        if self.report is None or index < 0:
-            return
-        if index == 0:
-            headers = ["来源", "状态", "说明"]
-            rows = [(r["source"], r["status"], r["detail"])
-                    for r in self.report["files"]]
-        else:
-            product = self.report["products"][index - 1]
-            headers, rows = product["columns"], product["sample"]
-        self.table.clear()
-        self.table.setColumnCount(len(headers))
-        self.table.setHorizontalHeaderLabels(headers)
-        self.table.setRowCount(len(rows))
-        for r, values in enumerate(rows):
-            for c, value in enumerate(values):
-                self.table.setItem(r, c, W.QTableWidgetItem(str(value)))
-        self.table.resizeColumnsToContents()
-
-    def finished(self):
-        self.job.deleteLater()
-        self.job = None
-        self.left.setEnabled(True)
-        self.tabs.setEnabled(True)
-        if self.close_later:
-            self.close()
-
-    def closeEvent(self, event):
-        if self.job is None:
-            event.accept()
-        else:
-            self.close_later = True
-            event.ignore()
-            self.setWindowTitle("本批完成后关闭")
-
-if __name__ == "__main__":
-    app = W.QApplication(sys.argv)
-    window = Window()
-    window.show()
-    sys.exit(app.exec())
-\end{lstlisting}
-\textbf{运行}\quad 执行 \file{python ui_lab.py}。选“表格处理”，规则选 \file{sum}，两列填 \file{sku} 与 \file{qty}。点“预览”应出现三列 \file{sku/count/total}，首行为 \file{0012 / 2 / 6}，磁盘无新批次。点“执行”后，状态行变为本次批次目录；打开其中的 \file{tables/totals.xlsx}，核对相同的三组数。
-\newpage
-\partlabel{独立复现 · 交互设计}
-\section{从能点击的窗口做到不会填错的表单}
-现在的表格页在“合并”时也显示数值列。让控件跟随规则变化：去重和拆分需要键，求和需要键与数值列，直接合并和格式互转都不需要这两项。切走时保留输入；提交时只取可见值。正式版在 \file{RuleForm.refresh} 与 \file{RuleForm.options} 分别落实这两件事。
-
-\subsection{改两处，再验证一次}
-\textbf{第一处。}打开练习的 \file{view_lab.py}，在 \file{add_page} 的 \verb|self.stack.addWidget(page)| 下一行插入下框。缩进八个空格，每个页面使用自己的 \file{form} 和 \file{editors}。
-\begin{lstlisting}[style=lab]
-        if "action" in editors:
-            def refresh_fields(action):
-                form.setRowVisible(editors["key"],
-                                   action in ("unique", "sum", "split"))
-                form.setRowVisible(editors["amount"], action == "sum")
-            switch = editors["action"]
-            switch.currentTextChanged.connect(refresh_fields)
-            refresh_fields(switch.currentText())
-\end{lstlisting}
-最后一行负责首次显示；如果只连接信号，第一次打开“表格处理”时，要等用户切换一次才会看到正确的布局。
-
-\textbf{第二处。}打开 \file{ui_lab.py}，在 \file{launch} 中、循环读取 \file{editor} 的第一行加判断。这里检查的是当前页面的布局行，数字和字符串值均由原有代码读取。
-\begin{lstlisting}[style=lab]
-        for key, editor in self.inputs[i].items():
-            if not self.stack.currentWidget().layout().isRowVisible(editor):
-                continue
-            opts[key] = (editor.currentText() if isinstance(editor, W.QComboBox)
-                         else editor.text())
-\end{lstlisting}
-\textbf{验证}\quad 重新运行 \file{python ui_lab.py}。选择 \file{sum}，填好 \file{sku}、\file{qty}，再切回 \file{merge}。两个输入框及标签均消失。在 \file{args = ...} 处暂停，此时应只有 \verb|{"action":"merge"}|。切回 \file{sum}，刚才填写的值应恢复。只调用 \file{editor.hide()} 会留下孤立的标签，是很容易发现的布局错误。
-
-\subsection{把剩下的成品控件接在哪里}
-\begin{tabularx}{\linewidth}{@{}lY@{}}\toprule
-控件 & 实现位置与校验方法\\\midrule
-选择指定文件 & 用 \file{QFileDialog.getOpenFileNames} 获取路径，在启动前拍成列表快照。两次改变工作目录后，确认旧的指定列表已清空。\\
-状态筛选与计数 & 保存完整清单，再从中生成可见行。生产版用 \file{FileModel.select_status} 更新模型；筛选仅改可见行，顶部成功数应保持不变。\\
-打开结果目录 & 成功执行后保存 \file{result_dir}，按钮调用 \file{QDesktopServices.openUrl}，传入 \file{QUrl.fromLocalFile}。预览状态下禁用按钮。\\
-样本与日志 & 样本选择框的每一项对应一份产物；切换时更新行列数。导出清单时序列化完整报告，使过滤掉的失败记录也可追溯。\\\bottomrule
-\end{tabularx}
+运行 \file{python ui_lab.py} 后点预览，第 2 页的 0012 应为两条、合计 6。改错列名，确认状态行显示错误，按钮可以再点。正式版的 \file{start_batch} 将路径和表单先复制为普通对象，再交给工作线程。
 \newpage
 \partlabel{独立复现 · 结业练习}
 \section{合上代码，独立加一条功能}\phantomsection\label{lab:exam}
@@ -917,14 +664,14 @@ print("threshold OK")
 \end{lstlisting}
 \subsection{卡住时分三处观察}
 \begin{enumerate}
-\item \textbf{表单。}在 \file{view_lab.py} 的 \file{sheet} 字段列表中追加 \verb|("minimum","最小数值","")|。若已做上一页的扩展，在 \file{refresh_fields} 中令该行只在 \file{sum} 时可见。在 \file{Window.launch} 的 \file{args = ...} 处设断点。输入 3 后，应看到 \verb|opts["minimum"] == "3"|。
+\item \textbf{表单。}在 \file{ui_lab.py} 加一个 \file{CTkEntry}，输入框的值在 \file{launch} 中读取。工作线程接收这个值，在规则字典中登记为 \file{minimum}。输入 3 时检查 \verb|opts["minimum"] == "3"|。
 \item \textbf{计算。}在 \file{sum} 分支把数值列转为十进制后、分组之前插入下面的判断。观察过滤前四行、过滤后两行。
 \begin{lstlisting}[style=lab]
         cutoff = opts.get("minimum", "").strip()
         if cutoff:
             data = data[data[value] >= Decimal(cutoff)]
 \end{lstlisting}
-\item \textbf{渲染。}到 \file{Window.completed} 检查 \verb|report["products"][0]["sample"]|。若这里有两行而屏幕仍是三行，检查 \file{display} 是否调用了 \file{setRowCount(len(rows))}。预览通过后再点执行，打开文件核实真正写出的值。
+\item \textbf{渲染。}在 \file{poll} 中检查队列传回的 \file{rows}，门槛为 3 时应只剩两行。若屏幕仍有三行，检查插入新行前是否清空表格。随后核对正式写出的工作簿。
 \end{enumerate}
 \textbf{独立复现的自测}\quad 重启解释器，运行 \file{python test_threshold.py} 应打印 \file{threshold OK}。随后把门槛留空：0012 应恢复为两条、总计 6。若把筛选放在分组之后，0012 会保留 6，这个反例就能区分两种实现。
 \newpage
@@ -952,27 +699,21 @@ print("threshold OK")
 \textbf{自己排错}\quad 若 Excel 已经写错，先把 \file{products} 给出的数据框打印出来。数据正确，再单独调用 \file{save_frame}，写入临时工作簿并重新读取。这样一次实验只检验一个函数。
 \newpage
 \partlabel{独立复现 · 界面函数速查}
-\section{谁接收按钮事件，谁有权改窗口}
-同一条“预览”命令会经过主线程、工作线程，再回到主线程。按调用顺序读表。试着在处理时缩放窗口，完成后切换样本，再故意拼错列名，观察分别由哪个方法响应。
-
-\begin{tabularx}{\linewidth}{@{}lY@{}}\toprule
-方法 & 何时运行，输入什么，改变什么\\\midrule
-\file{LabView.__init__} & 创建窗口时建立左右布局、工具标签、表单堆栈和结果表。标签索引和配置列表的次序保持一致。\\
-\file{path_row} 与内层 \file{choose} & 前者把目录框和浏览按钮放入一行，返回输入框供后续读取。后者在点击浏览时运行，选中目录后更新输入框，取消时保留原值。\\
-\file{add_page} 与 \file{refresh_fields} & 按字段配置建立一页表单，保存字段名与控件的对应关系。扩展中的后者响应规则变化，同时显示或隐藏标签与输入框。\\
-\file{Window.__init__} & 在已有布局上连接信号与槽，记录当前任务和最近清单。按钮的两个回调分别传入 \file{False} 和 \file{True}。\\
-\file{reset_result} & 切换标签或开始新任务时清掉旧样本、行列与状态，避免把上次的窗口内容当作这次的结果。\\
-\file{launch} & 在主线程读取当前控件，构造参数快照。校验后锁定输入，连接结果和结束信号，再启动工作线程。\\
-\file{Task.__init__} & 保存参数和父对象。让窗口持有线程对象，使它在处理完成之前保持有效。\\
-\file{Task.run} & 在工作线程调用引擎。进度通过 \file{tick} 传回，成功发 \file{ready}，异常发 \file{failed}；这两条路径都会触发 Qt 的结束通知。\\
-\file{progress} & 接收文件序号与相对路径，在主线程更新状态栏，供用户看到已处理到哪个文件。\\
-\file{completed} & 接收整份结果，保存清单，填充样本下拉框，挑选首个结果并交给 \file{display} 显示。\\
-\file{display} & 索引 0 显示文件明细；其他索引取相应产物的样本。重设行列数，再逐格填入文本。\\
-\file{finished} & 工作线程结束时释放引用、恢复输入和标签；如果用户曾请求关闭，此时再次关闭窗口。\\
-\file{closeEvent} & 空闲时接受关闭事件。任务进行中则标记关闭请求，让当前批次完成后退出。\\\bottomrule
+\section{从表单快照到两张结果表}
+\begin{tabularx}{\linewidth}{@{}p{.32\linewidth}Y@{}}\toprule
+入口 & 输入、作用及需要检查的位置\\\midrule
+\file{RuleForm.refresh} & 读对应标签的输入变量，按 \file{visible_fields} 显示相关行。用 \file{grid_remove} 隐藏行，保留原值和位置。\\
+\file{RuleForm.options} & 校验整数范围，把当前可见的内容转为规则字典。导出的清单仍能在命令行重放。\\
+\file{Workbench.start_batch} & 校验目录和规则，固定文件列表与预览标志，禁用表单和标签，再启动工作线程。\\
+\file{run_batch} & 运行 \file{perform}，把进度、清单或错误放进队列。函数只接触普通 Python 对象。\\
+\file{Workbench.poll} & 由 \file{after} 在主线程运行。取消息、更新进度或显示结果。在处理结束后恢复按钮。\\
+\file{Workbench.completed} & 保存完整清单，从 \file{report_view} 得到文件明细与样本。正式生成产物时启用打开目录按钮。\\
+\file{DataTable.fill} & 读标题和二维行数组，重新设置列。内容超出表宽时由横向滚动条访问。\\
+\file{Workbench.request_close} & 记录关闭请求，等当前批次落盘后退出。\\\bottomrule
 \end{tabularx}
 
-\textbf{自己解释一次}\quad 假定列名拼错，窗口能显示原因并允许下一次操作。沿 \file{products}、\file{Task.run}、\file{failed} 和 \file{finished} 走一遍，指出错误在哪一层产生、哪一层把它变成文字、哪一层重新启用按钮。
+\subsection{沿一次点击检查哪层出错}
+在“表格处理”选择“分组汇总”，依次在 \file{start_batch} 的参数快照、\file{run_batch} 的清单和 \file{DataTable.fill} 的行数组处暂停。三处分别应显示 \file{keys="sku"} 与 \file{amount="qty"}、三组结果，以及 0012 的两条记录和合计 6。再切到“Excel 转 CSV”，确认数值列消失。最后故意填错列名，检查 \file{poll} 恢复按钮。
 \newpage
 \partlabel{独立复现 · 源码对照}
 \section{从练习程序走到完整项目}\phantomsection\label{lab:production}
@@ -984,18 +725,18 @@ print("threshold OK")
 原位改名与撤销 & 在 \file{rename_originals} 先枚举并校验映射，再逐个改名。登记路径与 \file{fingerprint}，撤销在 \file{undo_renames} 里逆序进行。 & 改名后在原路径另建文件，再撤销。两个文件均应保留，清单指出名称冲突。\\
 文本、图片与分类 & \file{compile_match} 统一正则和大小写；\file{convert_image} 将单帧验证、方向、锐化、输出格式组合；\file{category} 按业务类型归类。 & 正则替换 GBK 文本后用 GBK 读回；将同一张透明图输出为五种格式，用 Pillow 重新打开并核对格式与像素尺寸。\\
 表格的列与行 & \file{table_frame} 保留来源；\file{transform_tables} 先验证列，再筛选和投影。以多个列名组成列表传入去重与分组。 & 列序颠倒、缺列、重复键、非数值金额和只有表头的工作表分别测试。错误应指出来源，已有文件不可覆盖。\\
-界面及清单 & \file{RuleForm.refresh} 控制行可见性，\file{options} 只读当前规则；\file{FileModel} 向视图按需提供可见行。 & 在“分组汇总”填写金额列，再切换“CSV 转 Excel”。导出的转换规则应不含多余的金额字段。\\\bottomrule
+界面及清单 & \file{RuleForm.refresh} 控制行可见性，\file{options} 只读当前规则；\file{DataTable.fill} 填充筛选后的行。 & 在“分组汇总”填写金额列，再切换“CSV 转 Excel”。导出的转换规则应不含多余的金额字段。\\\bottomrule
 \end{tabularx}
 
 \subsection{给一次真实点击设三个断点}
 用正式项目的 \file{main.py} 启动。选“表格处理 → 分组汇总”，依次在 \file{Workbench.start_batch} 采集规则之后、\file{transform_tables} 完成分组之后、\file{Workbench.show_sample} 设置表格之前暂停。观察同一件事如何变化：第一处是规则 \file{keys="sku"} 与 \file{amount="qty"}，第二处是三行数据框，第三处是字符串单元格数组。首次出现偏差的位置决定你该回到表单、算法还是视图。
 
 \subsection{查接口，检验自己的实现}
-前两条命令在练习目录查本地接口。最后一条在正式项目根目录运行：\file{test_tools.py} 检验文件和数据，\file{test_desktop.py} 通过真实按钮检验表单、线程和视图的连接。
+前两条命令在练习目录查本地接口。最后一条在正式项目根目录运行：\file{test_tools.py} 检验文件和数据，\file{test_ctk_desktop.py} 通过真实按钮检验表单、线程和视图的连接。
 \begin{lstlisting}[style=lab]
 python -m pydoc re.Pattern.subn
-python -m pydoc PyQt6.QtCore.QThread
-.\.venv-build\Scripts\python.exe -m unittest discover -s tests -v
+python -m pydoc threading.Thread
+.\.venv-build-customtkinter\Scripts\python.exe -m unittest discover -s tests -v
 \end{lstlisting}
 \newpage
 \partlabel{成品对照 · 数据}
@@ -1084,9 +825,9 @@ PowerShell 中用 \file{$LASTEXITCODE} 查看脚本退出码。只有跳过项�
 \newpage
 \partlabel{桌面工作台}
 \section{从文件选择到结果预览}
-双击“启动工作台.cmd”打开 PyQt6，或双击“启动CustomTkinter.cmd”打开另一套界面。顶部切换工具，左栏填写规则。拖动两栏之间的分隔条可加宽右侧；有数据样本时，向上拖动明细下沿可放大预览。“预览结果”计算计划，“执行处理”重新读取输入。输出留空时使用输入目录内的“整理结果”。
+双击“启动CustomTkinter.cmd”打开 CustomTkinter。顶部切换工具，左栏填写规则。拖动两栏之间的分隔条可加宽右侧；有数据样本时，向上拖动明细下沿可放大预览。“预览结果”计算计划，“执行处理”重新读取输入。输出留空时使用输入目录内的“整理结果”。
 \begin{center}
-\includegraphics[width=\linewidth,height=.39\textheight,keepaspectratio]{docs/workbench.png}
+\includegraphics[width=\linewidth,height=.39\textheight,keepaspectratio]{docs/workbench-customtkinter.png}
 \end{center}
 上图是第 2 页样例的真实预览：以 \file{sku} 分组，对 \file{qty} 求和。右下角可查看实际数据，批次尚未写入磁盘。
 
@@ -1132,22 +873,22 @@ assert totals.loc["0012"] == Decimal("6")
 \item \textbf{文件名。}在 \file{rename_to} 中分离主名和扩展名。模板支持 \verb|{name}|、\verb|{n:03d}|、\verb|{date}|（修改日期）。用两份同名文件试算名称。副本重名自动加编号。原位模式先规划整批，目标被占用就报告冲突。撤销前核对文件身份、大小和修改时间，原名被占用时保留两个文件。
 \item \textbf{文本。}在 \file{replace_text} 中先读字节，识别 BOM，再解码替换。用正则 \verb|code-(\d+)| 查找，替换为 \verb|ID:\1|，关闭大小写敏感。输入 \file{CODE-02} 应得 \file{ID:02}。检查 CRLF 和 BOM 是否保留。自动模式先试 UTF-8，再试 GB18030，已知编码时可手工选择。
 \item \textbf{图像与分类。}先转换一张透明图，观察 JPEG 的白底和 PNG 的透明度。按月分类读取修改时间。用两个名字不同、内容相同的文件验证流式 SHA-256；同内容应列在一组，同名但内容不同应分开。
-\item \textbf{批次与界面。}先写 \file{perform} 接受普通字典。空的暂存位置表示只预览。再用 \file{RuleForm.options} 收集参数，交给 \file{BatchWorker.run}。工作线程发出结果，主线程更新控件。先断言预览没有创建目录，再打开实际 ZIP 对照清单。关闭窗口时等待当前批次写完。
+\item \textbf{批次与界面。}先写 \file{perform} 接受普通字典。空的暂存位置表示只预览。再用 \file{RuleForm.options} 收集参数，交给 \file{run_batch}。工作线程把结果放进队列，主线程用 \file{poll} 更新控件。先断言预览没有创建目录，再打开实际 ZIP 对照清单。关闭窗口时等待当前批次写完。
 \end{enumerate}
 
 \subsection{保存规则与重复执行}
 在界面点击“导出清单”保存 \file{rules.json}，其中包含规则与预览样本。下面的命令会扫描给定目录，重放同一组参数。专业工具支持增加 \file{--preview} 只计算计划。原位改名规则重放时也会修改原件，练习可先使用样例目录。
 \begin{lstlisting}
-.\.venv-build\Scripts\python.exe main.py --job rules.json --input inbox --output out --report check.json
-.\.venv-build\Scripts\python.exe -m unittest discover -s tests -v
+.\.venv-build-customtkinter\Scripts\python.exe main.py --job rules.json --input inbox --output out --report check.json
+.\.venv-build-customtkinter\Scripts\python.exe -m unittest discover -s tests -v
 \end{lstlisting}
 函数入口均有中文文档字符串。可执行 \file{python -m pydoc batch_ops.transform_tables} 查看说明，再对照 \file{tests/test_tools.py} 中的输入、断言、输出三部分独立复现。
 \subsection{设计参考}
-功能标签、操作前预览和共享结果区参考 JingBing-GHT 的 Smart-File-Batch-Processor。此项目使用 PyQt6 实现，并增加表格规则、数据样本与规则重放。参考仓库：\url{https://github.com/JingBing-GHT/Smart-File-Batch-Processor}。
+功能标签、操作前预览和共享结果区参考 JingBing-GHT 的 Smart-File-Batch-Processor。此分支使用 CustomTkinter 实现，并增加表格规则、数据样本与规则重放。参考仓库：\url{https://github.com/JingBing-GHT/Smart-File-Batch-Processor}。
 \newpage
 \partlabel{正式项目 · 复杂工作表}
 \section{表头占了三行，怎样选对数据}\phantomsection\label{advanced:headers}
-双击项目中的“启动工作台.cmd”，进入“表格处理”。把输入目录设为 \file{tests/fixtures}。其中的 \file{legacy_orders.xls} 是本页配套的合成工作簿。
+双击项目中的“启动CustomTkinter.cmd”，进入“表格处理”。把输入目录设为 \file{tests/fixtures}。其中的 \file{legacy_orders.xls} 是本页配套的合成工作簿。
 
 \subsection{先查目录，再选择要处理的工作表}
 选“工作表目录”并点“预览结果”。该文件有“订单”和“空表”两张表，目录顺序是 1、2。改选“Excel 转 CSV”，在“工作表名”填“订单”，再次预览，应有一行、五个业务列，第一项货号为 0012。此框还支持 \file{*} 和 \file{?}；例如 \file{*岗位*} 会选中表名含“岗位”的所有工作表。留空则处理全部，指定名称时 CSV 会跳过。执行时目录产生完整的 CSV，转换会按工作表原序号命名。
@@ -1219,70 +960,22 @@ Path("notes.txt").write_bytes(codecs.BOM_UTF16_LE + text.encode("utf-16-le"))
 python batch_tool.py inbox out --preview
 \end{lstlisting}
 \newpage
-\partlabel{独立复现 · 第二套桌面界面}
-\section{用 CustomTkinter 接入同一个引擎}
-安装 \file{requirements-customtkinter.txt} 后运行 \file{python main.py --ui customtkinter}。PyQt6 使用 \file{requirements-pyqt6.txt} 和 \file{python main.py}。先做下面的小练习，拖动分隔条确认空间分配，再接上数据和按钮。配图见 \file{docs/workbench-customtkinter.png}。
-
-\subsection{先搭可拖动的空窗口}
-\begin{lstlisting}[style=lab]
-import tkinter as tk
-import customtkinter as ctk
-from tkinter import ttk
-from workbench_view import MODES
-
-app = ctk.CTk()
-app.geometry("1100x700")
-tabs = ctk.CTkSegmentedButton(app, values=list(MODES))
-tabs.pack(fill="x")
-tabs.set(MODES[0])
-body = tk.PanedWindow(app, orient="horizontal", sashwidth=7)
-body.pack(fill="both", expand=True)
-left = ctk.CTkFrame(body)
-views = tk.PanedWindow(body, orient="vertical", sashwidth=7)
-body.add(left, width=300, minsize=240, stretch="never")
-body.add(views, stretch="always")
-for title in ("文件明细", "数据样本"):
-    tree = ttk.Treeview(views, columns=("value",), show="headings")
-    tree.heading("value", text=title)
-    views.add(tree, minsize=80, stretch="always")
-app.mainloop()
-\end{lstlisting}
-在左栏建立 \file{Canvas}，先画虚化底图、再画标题文字。将规则放入 \file{CTkScrollableFrame}，把执行按钮放在滚动区域下方。右侧有样本才加入第二张表；切换到无样本任务时，移除这块面板，让明细使用整栏高度。Qt 版用两个 \file{QSplitter} 实现相同布局。
-
-\subsection{接上规则、线程和表格}
-\begin{enumerate}
-\item 打开 \file{workbench_view.py}。照 \file{build_fields} 的接口写四种控件。文本和数字输入绑定 \file{StringVar}，勾选框绑定 \file{BooleanVar}。规则变化时用 \file{visible_fields} 控制字段显隐。点按钮时用 \file{task_options} 生成参数，把可见的数字字段转成整数。
-\item 打开 \file{ctk_ui.py}。顺着 \file{start_batch}、\file{run_batch}、\file{poll} 找到一次点击的路径。主线程先拍下参数，工作线程调用 \file{perform} 后将清单放入 \file{queue.Queue}。主线程用 \file{after} 取消息，再按 \file{report_view} 的结果填入两张表。
-\item 用第 2 页的样例分别启动两个界面，选“表格处理 → 分组汇总”，填 \file{sku} 和 \file{qty}。两边都应显示 0012 合计 6。拖动预览上沿，确认样本能增高；切换标签再回来，确认输入保留，旧批次结果已清空。
-\end{enumerate}
-\newpage
 \partlabel{Windows 交付}
-\section{在独立虚拟环境中打包}
-两个版本共用 \file{requirements-core.txt} 中的表格和图像依赖。每个界面各有一份安装清单和一个独立打包入口。根目录的 \file{requirements.txt} 供同时调试两个界面时使用。
+\section{在独立虚拟环境中运行与打包}
+这个分支使用 CustomTkinter。项目根目录的 \file{requirements.txt} 引用该界面的依赖清单；表格和图像库在 \file{requirements-core.txt} 中。
 
-\subsection{先单独运行一个版本}
-在项目根目录打开 PowerShell。下面的命令安装并启动 CustomTkinter；要运行 PyQt6，只需把第一行的值改成 \file{pyqt6}。两个启动器也会优先选用自己对应的环境。
+\subsection{运行源码}
+在项目根目录打开 PowerShell 并运行下列命令。安装后也可双击“启动CustomTkinter.cmd”，启动器会优先使用该环境。
 \begin{lstlisting}
-$ui = "customtkinter"
-$dir = ".\.venv-build-$ui"
-python -m venv $dir
-$py = Join-Path $dir "Scripts\python.exe"
-& $py -m pip install -r "requirements-$ui.txt"
-& $py main.py --ui $ui
+python -m venv .venv-build-customtkinter
+$py = Join-Path ".\.venv-build-customtkinter" "Scripts\python.exe"
+& $py -m pip install -r requirements.txt
+& $py main.py
 \end{lstlisting}
-\subsection{需要 EXE 时选一条构建命令}
-Windows x64、CPython 3.9 的构建命令如下。脚本分别创建或复用对应的隔离环境，向 pip 传入所选界面的安装清单。\file{requirements-build.txt} 通过 \file{-c} 固定本次需要的依赖版本。
-\begin{lstlisting}
-.\build.ps1 -Ui pyqt6
-.\build.ps1 -Ui customtkinter
-\end{lstlisting}
-\file{workbench.spec} 生成“归档台.exe”，携带 Qt 的 Windows 插件。\file{workbench-customtkinter.spec} 生成“归档台-CustomTkinter.exe”，携带 Tcl/Tk、主题和字体。打开对应的 spec 可查看入口脚本、资源文件和排除模块。两个文件可并存于 \file{dist}。
 
-\subsection{怎样验收成品}
-在输出目录直接启动 EXE，选择“一键归档”和第 2 页的样例文件夹。核对窗口里的四项统计、工作簿中的前导零、两张同名图的去向，再解压 ZIP 对照清单。检查打包内容时，可以在 PowerShell 中运行以下命令；输出会列出可执行文件的外层归档和内层 Python 模块。
-\begin{lstlisting}
-$exe = Get-Item .\dist\归档台-CustomTkinter.exe
-.\.venv-build-customtkinter\Scripts\pyi-archive_viewer.exe -r -b $exe.FullName
-Get-FileHash $exe.FullName -Algorithm SHA256
-\end{lstlisting}
+\subsection{构建 Windows 版}
+需要打包时，在 Windows x64 和 CPython 3.9 下运行 \file{.\build.ps1}。脚本在对应虚拟环境中安装 PyInstaller，并使用 \file{requirements-build.txt} 固定版本。\file{workbench-customtkinter.spec} 指定入口、资源及依赖排除项。构建完成后，在 \file{dist} 中打开“归档台-CustomTkinter.exe”。
+
+\subsection{核对预览和实际文件}
+用第 2 页样例跑一次“一键归档”，对照清单、工作簿以及 ZIP 成员。再进入“图片转换”，指定宽 30、高 20，检查预览和实际输出均为 30×20。若选择等比适应，同一批图片的实际尺寸应落在这个范围内。
 \end{document}
