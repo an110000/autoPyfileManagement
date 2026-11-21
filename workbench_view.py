@@ -1,4 +1,4 @@
-"""两个桌面前端共用的规则字段、路径校验和结果呈现逻辑。"""
+"""工作台的规则字段、路径校验和结果呈现逻辑。"""
 
 from pathlib import Path
 
@@ -10,7 +10,7 @@ HEADER_IMAGE = Path(__file__).resolve().parent / "assets" / "workbench-header.pn
 
 
 def build_fields(form, mode):
-    """调用前端控件方法创建规则，统一两套界面的字段名、范围和默认值。"""
+    """调用表单的控件方法创建规则，集中声明字段名、范围和默认值。"""
     if mode == "批量重命名":
         form.choice("rule", "命名方式", ["模板序号", "查找替换", "前后缀", "正则改名"])
         form.line("template", "文件名模板", "{name}_{n:03d}")

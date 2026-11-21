@@ -8,22 +8,19 @@ import sys
 from pathlib import Path
 
 
-def desktop(ui="pyqt6"):
+def desktop():
     """加载桌面程序；源码入口缺依赖时尝试项目解释器，提供明确安装指引。"""
     try:
-        if ui == "customtkinter":
-            from ctk_ui import main as start_ui
-        else:
-            from batch_ui import main as start_ui
+        from batch_ui import main as start_ui
     except (ImportError, OSError) as error:
         folder = Path(__file__).resolve().parent
         if not getattr(sys, "frozen", False) and not os.environ.get("BATCH_UI_RETRY"):
-            for name in (f".venv-build-{ui}", ".venv-build", ".venv"):
+            for name in (".venv-build-pyqt6", ".venv-build", ".venv"):
                 candidate = folder / name / "Scripts" / "python.exe"
                 if candidate.is_file() and candidate.resolve() != Path(sys.executable).resolve():
                     env = dict(os.environ, BATCH_UI_RETRY="1")
-                    return subprocess.call([str(candidate), str(folder / "main.py"), "--ui", ui], env=env)
-        raise RuntimeError(f"桌面依赖加载失败（{sys.executable}）：{error}。请用当前解释器安装 requirements-{ui}.txt。") from error
+                    return subprocess.call([str(candidate), str(folder / "main.py")], env=env)
+        raise RuntimeError(f"桌面依赖加载失败（{sys.executable}）：{error}。请用当前解释器安装 requirements.txt。") from error
     return start_ui()
 
 
@@ -46,11 +43,9 @@ def replay(args):
     return 1 if report["summary"]["error"] else 0
 
 
-def main(default_ui="pyqt6"):
+def main():
     """选择图形或规则重放入口，记录启动错误；退出码 2 表示整批未能完成。"""
     parser = argparse.ArgumentParser(description="归档台桌面工作站 / 规则重放")
-    choices = (default_ui,) if getattr(sys, "frozen", False) else ("pyqt6", "customtkinter")
-    parser.add_argument("--ui", choices=choices, default=default_ui, help="选择桌面界面")
     parser.add_argument("--job", type=Path, help="导出的 JSON 清单或规则")
     parser.add_argument("--input", type=Path, help="重放时扫描的输入目录")
     parser.add_argument("--output", type=Path, help="正式成果的输出根目录")
@@ -59,7 +54,7 @@ def main(default_ui="pyqt6"):
     args = parser.parse_args()
     try:
         if args.job is None:
-            return desktop(args.ui)
+            return desktop()
         if args.input is None or args.output is None:
             raise ValueError("--job 需要同时提供 --input 和 --output")
         return replay(args)

@@ -1,16 +1,9 @@
-param(
-    [ValidateSet('pyqt6', 'customtkinter')]
-    [string]$Ui = 'pyqt6'
-)
-
 $ErrorActionPreference = 'Stop'
 $oldCache = $env:PYINSTALLER_CONFIG_DIR
 Push-Location -LiteralPath $PSScriptRoot
 try {
-    $Ui = $Ui.ToLowerInvariant()
-    $buildEnv = ".venv-build-$Ui"
+    $buildEnv = '.venv-build-pyqt6'
     $buildPython = Join-Path $buildEnv 'Scripts\python.exe'
-    $spec = if ($Ui -eq 'pyqt6') { 'workbench.spec' } else { 'workbench-customtkinter.spec' }
     if (-not (Test-Path -LiteralPath $buildPython)) {
         python -m venv $buildEnv
         if ($LASTEXITCODE) { throw 'Could not create the build environment.' }
@@ -18,12 +11,12 @@ try {
     if (-not (Select-String -Quiet -LiteralPath (Join-Path $buildEnv 'pyvenv.cfg') -Pattern '^include-system-site-packages\s*=\s*false\s*$')) {
         throw 'The build environment must be isolated from system site-packages.'
     }
-    & $buildPython -I -m pip install --disable-pip-version-check --only-binary=:all: -r "requirements-$Ui.txt" -c requirements-build.txt PyInstaller
+    & $buildPython -I -m pip install --disable-pip-version-check --only-binary=:all: -r requirements.txt -c requirements-build.txt PyInstaller
     if ($LASTEXITCODE) { throw 'Build dependency installation failed.' }
     & $buildPython -I -m pip check
     if ($LASTEXITCODE) { throw 'Incompatible build dependencies.' }
     $env:PYINSTALLER_CONFIG_DIR = Join-Path $PSScriptRoot 'build\pyinstaller-cache'
-    & $buildPython -I -m PyInstaller --noconfirm --clean $spec
+    & $buildPython -I -m PyInstaller --noconfirm --clean workbench.spec
     if ($LASTEXITCODE) { throw 'Packaging failed.' }
     Get-ChildItem -LiteralPath 'dist' -Filter '*.exe' | Select-Object Name, Length, FullName
 } finally {

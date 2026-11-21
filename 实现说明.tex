@@ -995,7 +995,7 @@ print("threshold OK")
 \begin{lstlisting}[style=lab]
 python -m pydoc re.Pattern.subn
 python -m pydoc PyQt6.QtCore.QThread
-.\.venv-build\Scripts\python.exe -m unittest discover -s tests -v
+.\.venv-build-pyqt6\Scripts\python.exe -m unittest discover -s tests -v
 \end{lstlisting}
 \newpage
 \partlabel{成品对照 · 数据}
@@ -1084,7 +1084,7 @@ PowerShell 中用 \file{$LASTEXITCODE} 查看脚本退出码。只有跳过项�
 \newpage
 \partlabel{桌面工作台}
 \section{从文件选择到结果预览}
-双击“启动工作台.cmd”打开 PyQt6，或双击“启动CustomTkinter.cmd”打开另一套界面。顶部切换工具，左栏填写规则。拖动两栏之间的分隔条可加宽右侧；有数据样本时，向上拖动明细下沿可放大预览。“预览结果”计算计划，“执行处理”重新读取输入。输出留空时使用输入目录内的“整理结果”。
+双击“启动工作台.cmd”打开 PyQt6。顶部切换工具，左栏填写规则。拖动两栏之间的分隔条可加宽右侧；有数据样本时，向上拖动明细下沿可放大预览。“预览结果”计算计划，“执行处理”重新读取输入。输出留空时使用输入目录内的“整理结果”。
 \begin{center}
 \includegraphics[width=\linewidth,height=.39\textheight,keepaspectratio]{docs/workbench.png}
 \end{center}
@@ -1138,8 +1138,8 @@ assert totals.loc["0012"] == Decimal("6")
 \subsection{保存规则与重复执行}
 在界面点击“导出清单”保存 \file{rules.json}，其中包含规则与预览样本。下面的命令会扫描给定目录，重放同一组参数。专业工具支持增加 \file{--preview} 只计算计划。原位改名规则重放时也会修改原件，练习可先使用样例目录。
 \begin{lstlisting}
-.\.venv-build\Scripts\python.exe main.py --job rules.json --input inbox --output out --report check.json
-.\.venv-build\Scripts\python.exe -m unittest discover -s tests -v
+.\.venv-build-pyqt6\Scripts\python.exe main.py --job rules.json --input inbox --output out --report check.json
+.\.venv-build-pyqt6\Scripts\python.exe -m unittest discover -s tests -v
 \end{lstlisting}
 函数入口均有中文文档字符串。可执行 \file{python -m pydoc batch_ops.transform_tables} 查看说明，再对照 \file{tests/test_tools.py} 中的输入、断言、输出三部分独立复现。
 \subsection{设计参考}
@@ -1219,70 +1219,22 @@ Path("notes.txt").write_bytes(codecs.BOM_UTF16_LE + text.encode("utf-16-le"))
 python batch_tool.py inbox out --preview
 \end{lstlisting}
 \newpage
-\partlabel{独立复现 · 第二套桌面界面}
-\section{用 CustomTkinter 接入同一个引擎}
-安装 \file{requirements-customtkinter.txt} 后运行 \file{python main.py --ui customtkinter}。PyQt6 使用 \file{requirements-pyqt6.txt} 和 \file{python main.py}。先做下面的小练习，拖动分隔条确认空间分配，再接上数据和按钮。配图见 \file{docs/workbench-customtkinter.png}。
-
-\subsection{先搭可拖动的空窗口}
-\begin{lstlisting}[style=lab]
-import tkinter as tk
-import customtkinter as ctk
-from tkinter import ttk
-from workbench_view import MODES
-
-app = ctk.CTk()
-app.geometry("1100x700")
-tabs = ctk.CTkSegmentedButton(app, values=list(MODES))
-tabs.pack(fill="x")
-tabs.set(MODES[0])
-body = tk.PanedWindow(app, orient="horizontal", sashwidth=7)
-body.pack(fill="both", expand=True)
-left = ctk.CTkFrame(body)
-views = tk.PanedWindow(body, orient="vertical", sashwidth=7)
-body.add(left, width=300, minsize=240, stretch="never")
-body.add(views, stretch="always")
-for title in ("文件明细", "数据样本"):
-    tree = ttk.Treeview(views, columns=("value",), show="headings")
-    tree.heading("value", text=title)
-    views.add(tree, minsize=80, stretch="always")
-app.mainloop()
-\end{lstlisting}
-在左栏建立 \file{Canvas}，先画虚化底图、再画标题文字。将规则放入 \file{CTkScrollableFrame}，把执行按钮放在滚动区域下方。右侧有样本才加入第二张表；切换到无样本任务时，移除这块面板，让明细使用整栏高度。Qt 版用两个 \file{QSplitter} 实现相同布局。
-
-\subsection{接上规则、线程和表格}
-\begin{enumerate}
-\item 打开 \file{workbench_view.py}。照 \file{build_fields} 的接口写四种控件。文本和数字输入绑定 \file{StringVar}，勾选框绑定 \file{BooleanVar}。规则变化时用 \file{visible_fields} 控制字段显隐。点按钮时用 \file{task_options} 生成参数，把可见的数字字段转成整数。
-\item 打开 \file{ctk_ui.py}。顺着 \file{start_batch}、\file{run_batch}、\file{poll} 找到一次点击的路径。主线程先拍下参数，工作线程调用 \file{perform} 后将清单放入 \file{queue.Queue}。主线程用 \file{after} 取消息，再按 \file{report_view} 的结果填入两张表。
-\item 用第 2 页的样例分别启动两个界面，选“表格处理 → 分组汇总”，填 \file{sku} 和 \file{qty}。两边都应显示 0012 合计 6。拖动预览上沿，确认样本能增高；切换标签再回来，确认输入保留，旧批次结果已清空。
-\end{enumerate}
-\newpage
 \partlabel{Windows 交付}
-\section{在独立虚拟环境中打包}
-两个版本共用 \file{requirements-core.txt} 中的表格和图像依赖。每个界面各有一份安装清单和一个独立打包入口。根目录的 \file{requirements.txt} 供同时调试两个界面时使用。
+\section{在独立虚拟环境中运行与打包}
+这个分支使用 PyQt6。项目根目录的 \file{requirements.txt} 引用该界面的依赖清单；表格和图像库在 \file{requirements-core.txt} 中。
 
-\subsection{先单独运行一个版本}
-在项目根目录打开 PowerShell。下面的命令安装并启动 CustomTkinter；要运行 PyQt6，只需把第一行的值改成 \file{pyqt6}。两个启动器也会优先选用自己对应的环境。
+\subsection{运行源码}
+在项目根目录打开 PowerShell 并运行下列命令。安装后也可双击“启动工作台.cmd”，启动器会优先使用该环境。
 \begin{lstlisting}
-$ui = "customtkinter"
-$dir = ".\.venv-build-$ui"
-python -m venv $dir
-$py = Join-Path $dir "Scripts\python.exe"
-& $py -m pip install -r "requirements-$ui.txt"
-& $py main.py --ui $ui
+python -m venv .venv-build-pyqt6
+$py = Join-Path ".\.venv-build-pyqt6" "Scripts\python.exe"
+& $py -m pip install -r requirements.txt
+& $py main.py
 \end{lstlisting}
-\subsection{需要 EXE 时选一条构建命令}
-Windows x64、CPython 3.9 的构建命令如下。脚本分别创建或复用对应的隔离环境，向 pip 传入所选界面的安装清单。\file{requirements-build.txt} 通过 \file{-c} 固定本次需要的依赖版本。
-\begin{lstlisting}
-.\build.ps1 -Ui pyqt6
-.\build.ps1 -Ui customtkinter
-\end{lstlisting}
-\file{workbench.spec} 生成“归档台.exe”，携带 Qt 的 Windows 插件。\file{workbench-customtkinter.spec} 生成“归档台-CustomTkinter.exe”，携带 Tcl/Tk、主题和字体。打开对应的 spec 可查看入口脚本、资源文件和排除模块。两个文件可并存于 \file{dist}。
 
-\subsection{怎样验收成品}
-在输出目录直接启动 EXE，选择“一键归档”和第 2 页的样例文件夹。核对窗口里的四项统计、工作簿中的前导零、两张同名图的去向，再解压 ZIP 对照清单。检查打包内容时，可以在 PowerShell 中运行以下命令；输出会列出可执行文件的外层归档和内层 Python 模块。
-\begin{lstlisting}
-$exe = Get-Item .\dist\归档台-CustomTkinter.exe
-.\.venv-build-customtkinter\Scripts\pyi-archive_viewer.exe -r -b $exe.FullName
-Get-FileHash $exe.FullName -Algorithm SHA256
-\end{lstlisting}
+\subsection{构建 Windows 版}
+需要打包时，在 Windows x64 和 CPython 3.9 下运行 \file{.\build.ps1}。脚本在对应虚拟环境中安装 PyInstaller，并使用 \file{requirements-build.txt} 固定版本。\file{workbench.spec} 指定入口、资源及依赖排除项。构建完成后，在 \file{dist} 中打开“归档台.exe”。
+
+\subsection{核对预览和实际文件}
+用第 2 页样例跑一次“一键归档”，对照清单、工作簿以及 ZIP 成员。再进入“图片转换”，指定宽 30、高 20，检查预览和实际输出均为 30×20。若选择等比适应，同一批图片的实际尺寸应落在这个范围内。
 \end{document}

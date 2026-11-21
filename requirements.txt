@@ -1,3 +1,1 @@
-# Optional development environment for running and testing both desktops together.
 -r requirements-pyqt6.txt
--r requirements-customtkinter.txt
